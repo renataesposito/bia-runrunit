@@ -390,7 +390,7 @@ function setKpi(id, val, color) {
   el.style.color = color;
 }
 
-// ─── gráfico: total contratado vs realizado ───────────────────────────────────
+// ─── gráfico: previsto acumulado vs realizado ─────────────────────────────────
 function renderChartEscopo(escopoR) {
   const height = Math.max(320, escopoR.length * 28 + 80);
   const labels = escopoR.map(e => e.entregavel);
@@ -399,11 +399,11 @@ function renderChartEscopo(escopoR) {
   const saldo        = escopoR.map(e => Math.max(e.qtd_ano - e.realizado_ano, 0));
   const overflow     = escopoR.map(e => Math.max(e.realizado_ano - e.qtd_ano, 0));
 
-  const customdata = escopoR.map(e => [
+  const customdata = escopoR.map((e, i) => [
     e.realizado_ano,
     e.qtd_ano,
-    Math.max(e.qtd_ano - e.realizado_ano, 0),
-    Math.max(e.realizado_ano - e.qtd_ano, 0),
+    saldo[i],
+    overflow[i],
     e.entregavel,
   ]);
 
