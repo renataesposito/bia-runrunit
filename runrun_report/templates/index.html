@@ -392,27 +392,54 @@ function setKpi(id, val, color) {
 
 // ─── gráfico: total contratado vs realizado ───────────────────────────────────
 function renderChartEscopo(escopoR) {
-  const height     = Math.max(320, escopoR.length * 28 + 80);
-  const labels     = escopoR.map(e => e.entregavel);
-  const contratado = escopoR.map(e => e.qtd_ano);
-  const realizado  = escopoR.map(e => e.realizado_ano);
+  const height = Math.max(320, escopoR.length * 28 + 80);
+  const labels = escopoR.map(e => e.entregavel);
+
+  const realizadoSeg = escopoR.map(e => Math.min(e.realizado_ano, e.qtd_ano));
+  const saldo        = escopoR.map(e => Math.max(e.qtd_ano - e.realizado_ano, 0));
+  const overflow     = escopoR.map(e => Math.max(e.realizado_ano - e.qtd_ano, 0));
+
+  const customdata = escopoR.map(e => [
+    e.realizado_ano,
+    e.qtd_ano,
+    Math.max(e.qtd_ano - e.realizado_ano, 0),
+    Math.max(e.realizado_ano - e.qtd_ano, 0),
+    e.entregavel,
+  ]);
+
+  const hoverTpl = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Saldo: %{customdata[2]}<br>Acima do previsto: +%{customdata[3]}<extra></extra>';
+
+  const annotations = escopoR.map(e => ({
+    x: Math.max(e.qtd_ano, e.realizado_ano),
+    y: e.entregavel,
+    text: `/ ${e.qtd_ano} plan.`,
+    xanchor: 'left',
+    yanchor: 'middle',
+    showarrow: false,
+    font: { size: 10, color: '#6C757D', family: 'Inter' },
+    xref: 'x',
+    yref: 'y',
+  }));
 
   Plotly.react('g-escopo', [
-    { name:'Total Contratado', y:labels, x:contratado, type:'bar', orientation:'h',
-      marker:{color:BRAND_DARK}, hovertemplate:'%{x}<extra></extra>' },
-    { name:'Realizado',        y:labels, x:realizado,  type:'bar', orientation:'h',
-      marker:{color:BRAND_LIME}, hovertemplate:'%{x}<extra></extra>' },
+    { name: 'Realizado', y: labels, x: realizadoSeg, type: 'bar', orientation: 'h',
+      marker: { color: BRAND_LIME }, customdata, hovertemplate: hoverTpl },
+    { name: 'Saldo', y: labels, x: saldo, type: 'bar', orientation: 'h',
+      marker: { color: BRAND_DARK }, customdata, hovertemplate: hoverTpl },
+    { name: 'Acima do previsto', y: labels, x: overflow, type: 'bar', orientation: 'h',
+      marker: { color: RED }, customdata, hovertemplate: hoverTpl },
   ], {
-    barmode: 'overlay',
-    title:   { text:'Total Contratado vs Realizado por Entregável', font:{size:13, family:'Inter'} },
+    barmode: 'stack',
+    title:   { text: 'Previsto Acumulado vs Realizado por Entregável', font: { size: 13, family: 'Inter' } },
     height,
-    margin:  {l:260, r:20, t:40, b:40},
-    xaxis:   {title:'Quantidade'},
-    yaxis:   {autorange:'reversed'},
-    legend:  {orientation:'h', y:-0.08},
-    paper_bgcolor:'white', plot_bgcolor:'white',
-    font:    {family:'Inter'},
-  }, {responsive:true, displayModeBar:false});
+    margin:  { l: 260, r: 120, t: 40, b: 40 },
+    xaxis:   { title: 'Quantidade' },
+    yaxis:   { autorange: 'reversed' },
+    legend:  { orientation: 'h', y: -0.08 },
+    annotations,
+    paper_bgcolor: 'white', plot_bgcolor: 'white',
+    font: { family: 'Inter' },
+  }, { responsive: true, displayModeBar: false });
 }
 
 // ─── gráfico: entregas por mês ────────────────────────────────────────────────
