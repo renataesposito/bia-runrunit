@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:runrun.it)",
+      "WebFetch(domain:boo.runrun.it)",
+      "WebSearch"
+    ]
+  }
+}
