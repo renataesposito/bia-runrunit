@@ -197,9 +197,9 @@
             <tr>
               <th class="sortable" onclick="sortEscopo('grupo')">Grupos <span id="srt-grupo"></span></th>
               <th class="sortable" onclick="sortEscopo('entregavel')">Entregáveis <span id="srt-entregavel"></span></th>
-              <th id="th-mes-prev" class="text-center sortable" onclick="sortEscopo('qtd_mes')">Previsto Qtd/Mês <span id="srt-qtd_mes"></span></th>
+              <th id="th-mes-prev" class="text-center sortable" onclick="sortEscopo('qtd_mes')" style="display:none">Previsto Qtd/Mês <span id="srt-qtd_mes"></span></th>
               <th class="text-center sortable" onclick="sortEscopo('qtd_ano')">Previsto Qtd/Ano <span id="srt-qtd_ano"></span></th>
-              <th id="th-mes-real" class="text-center sortable" onclick="sortEscopo('realizado_mes')">Realizado Qtd/Mês <span id="srt-realizado_mes"></span></th>
+              <th id="th-mes-real" class="text-center sortable" onclick="sortEscopo('realizado_mes')" style="display:none">Realizado Qtd/Mês <span id="srt-realizado_mes"></span></th>
               <th class="text-center sortable" onclick="sortEscopo('realizado_ano')">Realizado Qtd/Ano <span id="srt-realizado_ano"></span></th>
               <th class="sortable" style="min-width:140px" onclick="sortEscopo('progresso')">Progresso <span id="srt-progresso"></span></th>
             </tr>
@@ -407,7 +407,8 @@ function renderChartEscopo(escopoR) {
     e.entregavel,
   ]);
 
-  const hoverTpl = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Saldo: %{customdata[2]}<br>Acima do previsto: +%{customdata[3]}<extra></extra>';
+  const hoverTplSaldo    = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Saldo: %{customdata[2]}<extra></extra>';
+  const hoverTplOverflow = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Acima do previsto: +%{customdata[3]}<extra></extra>';
 
   const annotations = escopoR.map(e => ({
     x: Math.max(e.qtd_ano, e.realizado_ano),
@@ -423,11 +424,11 @@ function renderChartEscopo(escopoR) {
 
   Plotly.react('g-escopo', [
     { name: 'Realizado', y: labels, x: realizadoSeg, type: 'bar', orientation: 'h',
-      marker: { color: BRAND_LIME }, customdata, hovertemplate: hoverTpl },
+      marker: { color: BRAND_LIME }, customdata, hovertemplate: hoverTplSaldo },
     { name: 'Saldo', y: labels, x: saldo, type: 'bar', orientation: 'h',
-      marker: { color: BRAND_DARK }, customdata, hovertemplate: hoverTpl },
+      marker: { color: BRAND_DARK }, customdata, hovertemplate: hoverTplSaldo },
     { name: 'Acima do previsto', y: labels, x: overflow, type: 'bar', orientation: 'h',
-      marker: { color: RED }, customdata, hovertemplate: hoverTpl },
+      marker: { color: RED }, customdata, hovertemplate: hoverTplOverflow },
   ], {
     barmode: 'stack',
     title:   { text: 'Previsto Acumulado vs Realizado por Entregável', font: { size: 13, family: 'Inter' } },
