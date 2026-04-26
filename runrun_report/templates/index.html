@@ -197,9 +197,9 @@
             <tr>
               <th class="sortable" onclick="sortEscopo('grupo')">Grupos <span id="srt-grupo"></span></th>
               <th class="sortable" onclick="sortEscopo('entregavel')">Entregáveis <span id="srt-entregavel"></span></th>
-              <th class="text-center sortable" onclick="sortEscopo('qtd_mes')">Previsto Qtd/Mês <span id="srt-qtd_mes"></span></th>
+              <th id="th-mes-prev" class="text-center sortable" onclick="sortEscopo('qtd_mes')">Previsto Qtd/Mês <span id="srt-qtd_mes"></span></th>
               <th class="text-center sortable" onclick="sortEscopo('qtd_ano')">Previsto Qtd/Ano <span id="srt-qtd_ano"></span></th>
-              <th class="text-center sortable" onclick="sortEscopo('realizado_mes')">Realizado Qtd/Mês <span id="srt-realizado_mes"></span></th>
+              <th id="th-mes-real" class="text-center sortable" onclick="sortEscopo('realizado_mes')">Realizado Qtd/Mês <span id="srt-realizado_mes"></span></th>
               <th class="text-center sortable" onclick="sortEscopo('realizado_ano')">Realizado Qtd/Ano <span id="srt-realizado_ano"></span></th>
               <th class="sortable" style="min-width:140px" onclick="sortEscopo('progresso')">Progresso <span id="srt-progresso"></span></th>
             </tr>
@@ -480,21 +480,25 @@ function renderEscopoTable(escopoR, hasDate) {
   _lastHasDate = hasDate;
   _lastSorted  = getSortedEscopo(escopoR);
 
+  document.getElementById('th-mes-prev').style.display = hasDate ? '' : 'none';
+  document.getElementById('th-mes-real').style.display = hasDate ? '' : 'none';
+
   document.getElementById('t-escopo-body').innerHTML = _lastSorted.map((e, i) => {
     const pct    = e.qtd_ano > 0 ? Math.min(100, Math.round(100 * e.realizado_ano / e.qtd_ano)) : 0;
     const barClr = pct >= 80 ? BRAND_LIME : (pct >= 50 ? ORANGE : (pct > 0 ? RED : GRAY));
     const txtClr = pct >= 80 ? GREEN      : (pct >= 50 ? ORANGE : (pct > 0 ? RED : GRAY));
-    const realMes   = hasDate ? e.realizado_mes : '—';
     const hasDetail = e.entregas_detail?.length > 0;
     const tdExtra   = hasDetail
       ? `data-row="${i}" style="color:${txtClr};cursor:help"`
       : `style="color:${txtClr}"`;
+    const tdMesPrev = hasDate ? `<td class="text-center">${e.qtd_mes > 0 ? e.qtd_mes : '—'}</td>` : '';
+    const tdMesReal = hasDate ? `<td class="text-center fw-bold">${e.realizado_mes}</td>` : '';
     return `<tr>
       <td>${esc(e.grupo)}</td>
       <td>${esc(e.entregavel)}</td>
-      <td class="text-center">${e.qtd_mes > 0 ? e.qtd_mes : '—'}</td>
+      ${tdMesPrev}
       <td class="text-center">${e.qtd_ano > 0 ? e.qtd_ano : '—'}</td>
-      <td class="text-center fw-bold">${realMes}</td>
+      ${tdMesReal}
       <td class="text-center fw-bold" ${tdExtra}>${e.realizado_ano}</td>
       <td>
         <div class="progress mb-1" role="progressbar"
