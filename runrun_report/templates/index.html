@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Núclea — Previsto x Realizado</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --brand-dark: #1A1A1A;
+      --brand-lime: #DBED1F;
+      --brand-mint: #66FECB;
+    }
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    body { background: #F4F4F4; }
+
+    /* ── Header ── */
+    #site-header {
+      background: var(--brand-dark);
+      padding: 14px 24px 12px;
+      border-bottom: 3px solid var(--brand-lime);
+    }
+    .brand-logo  { display:flex; align-items:center; gap:10px; }
+    .brand-name  { color:#fff; font-size:18px; font-weight:700; letter-spacing:3px; text-transform:lowercase; }
+    .brand-sep   { color: var(--brand-lime); margin: 0 10px; font-weight:300; }
+    .brand-title { color: var(--brand-lime); font-size:14px; font-weight:600; }
+    #header-sub  { color:#888; font-size:11px; margin-top:4px; margin-bottom:0; }
+
+    /* ── Layout ── */
+    .content-wrap { padding: 16px 24px; }
+    .kpi-card  { border:none; box-shadow:0 1px 4px rgba(0,0,0,.08); border-radius:8px; }
+    .kpi-title { font-size:12px; color:#6C757D; margin-bottom:4px; font-weight:500; }
+    .kpi-value { font-size:28px; font-weight:700; line-height:1.1; margin-bottom:2px; }
+    .kpi-sub   { font-size:11px; color:#6C757D; }
+    .kpi-accent { border-top: 3px solid var(--brand-lime); }
+    .panel     { border:none; box-shadow:0 1px 4px rgba(0,0,0,.08); border-radius:8px; }
+    .chart-wrap { background:white; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,.08); padding:8px; }
+    .sec-title  { color: var(--brand-dark); font-weight:700; font-size:14px; }
+
+    /* ── Tables ── */
+    table thead th {
+      background: var(--brand-dark);
+      color: white;
+      font-size:12px; font-weight:600; white-space:nowrap;
+    }
+    table td { font-size:12px; padding:5px 8px !important; vertical-align:middle; }
+    th.sortable { cursor:pointer; user-select:none; }
+    th.sortable:hover { background: #333 !important; }
+    .td-trunc { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    /* ── Progress ── */
+    .progress { height:10px; border-radius:4px; }
+
+    /* ── Badges ── */
+    .badge-warn { background:#FFC107; color:#212529; }
+
+    /* ── Alerts ── */
+    #alert-unmapped { display:none; }
+
+    /* ── Hover detail card ── */
+    #hover-detail {
+      position:fixed; z-index:10000; pointer-events:none;
+      background:#fff; border:1px solid #dee2e6; border-radius:8px;
+      padding:10px 14px; box-shadow:0 6px 20px rgba(0,0,0,.18);
+      font-size:12px; max-width:380px; min-width:180px; display:none;
+    }
+    #hover-detail .hd-title { color:var(--brand-dark); font-weight:700; font-size:11px; margin-bottom:6px; }
+    #hover-detail ul { margin:0; padding-left:18px; }
+    #hover-detail li { margin-bottom:4px; line-height:1.45; color:#212529; }
+
+    /* ── Loading ── */
+    #loading {
+      position:fixed; inset:0; background:rgba(255,255,255,.95);
+      display:flex; align-items:center; justify-content:center; z-index:9999;
+    }
+    #error-msg { display:none; color:#DC3545; margin-top:12px; font-size:14px; }
+
+    /* ── Export button ── */
+    #btn-exp {
+      background: var(--brand-lime);
+      color: var(--brand-dark);
+      border: none;
+      font-weight: 600;
+    }
+    #btn-exp:hover { background: #c8d400; color: var(--brand-dark); }
+  </style>
+</head>
+<body>
+
+<div id="loading" role="status" aria-label="Carregando dados">
+  <div class="text-center">
+    <div class="spinner-border" style="width:3rem;height:3rem;color:#1A1A1A" aria-hidden="true"></div>
+    <p class="mt-3 text-muted">Carregando dados do RunRun.it…</p>
+    <p id="error-msg"></p>
+  </div>
+</div>
+
+<!-- HEADER NÚCLEA -->
+<header id="site-header">
+  <div class="brand-logo">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+      <path d="M4 24V4L24 24V4" stroke="#DBED1F" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <span class="brand-name">núclea</span>
+      <span class="brand-sep">|</span>
+      <span class="brand-title">Previsto × Realizado</span>
+    </div>
+  </div>
+  <p id="header-sub">Escopo: YESH HUB  |  A partir de 01/03/2026</p>
+</header>
+
+<div class="content-wrap">
+
+  <!-- Alerta de entregas não mapeadas -->
+  <div id="alert-unmapped" class="alert alert-warning alert-dismissible py-2 mb-3" role="alert">
+    <strong>⚠ Atenção:</strong> <span id="alert-unmapped-msg"></span>
+    Verifique se o nome da tag no RunRun.it coincide com o ENTREGÁVEL no Excel.
+    <button type="button" class="btn-close" onclick="this.parentElement.style.display='none'"></button>
+  </div>
+
+  <!-- KPI cards -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-3">
+      <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+        <p class="kpi-title">Entregas Previstas (acumulado)</p>
+        <div class="kpi-value" id="kpi-previsto" style="color:#1A1A1A">—</div>
+        <small class="kpi-sub">itens contratados até hoje</small>
+      </div></div>
+    </div>
+    <div class="col-md-3">
+      <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+        <p class="kpi-title">Entregas Realizadas</p>
+        <div class="kpi-value" id="kpi-realizado" style="color:#1A1A1A">—</div>
+        <small class="kpi-sub">registradas via comentário</small>
+      </div></div>
+    </div>
+    <div class="col-md-3">
+      <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+        <p class="kpi-title">% de Realização</p>
+        <div class="kpi-value" id="kpi-pct" style="color:#1A1A1A">—</div>
+        <small class="kpi-sub">realizado / previsto acumulado</small>
+      </div></div>
+    </div>
+    <div class="col-md-3">
+      <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+        <p class="kpi-title">Meses Decorridos</p>
+        <div class="kpi-value" id="kpi-meses" style="color:#1A1A1A">—</div>
+        <small class="kpi-sub">desde 01/03/2026</small>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- Filtros -->
+  <div class="card panel mb-3">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label small fw-bold mb-1" for="f-ini">De</label>
+          <input type="date" id="f-ini" class="form-control form-control-sm" value="2026-03-01">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold mb-1" for="f-fim">Até</label>
+          <input type="date" id="f-fim" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-bold mb-1" for="f-grupo">Grupo / Tipo de Entregável</label>
+          <select id="f-grupo" class="form-select form-select-sm">
+            <option value="">Todos os grupos</option>
+          </select>
+        </div>
+        <div class="col-md-4 d-flex align-items-end justify-content-end">
+          <button class="btn btn-sm" id="btn-exp">⬇ Exportar Excel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gráficos -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-8">
+      <div class="chart-wrap">
+        <div id="g-escopo"></div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="chart-wrap" style="height:100%">
+        <div id="g-mensal" style="height:100%;min-height:300px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabela: Escopo com Progresso -->
+  <div class="card panel mb-3">
+    <div class="card-body">
+      <p class="sec-title mb-2">Escopo Contratado — Previsto x Realizado</p>
+      <div class="table-responsive" style="max-height:480px;overflow-y:auto">
+        <table class="table table-sm table-bordered mb-0">
+          <thead style="position:sticky;top:0;z-index:1">
+            <tr>
+              <th class="sortable" onclick="sortEscopo('grupo')">Grupos <span id="srt-grupo"></span></th>
+              <th class="sortable" onclick="sortEscopo('entregavel')">Entregáveis <span id="srt-entregavel"></span></th>
+              <th class="text-center sortable" onclick="sortEscopo('qtd_mes')">Previsto Qtd/Mês <span id="srt-qtd_mes"></span></th>
+              <th class="text-center sortable" onclick="sortEscopo('qtd_ano')">Previsto Qtd/Ano <span id="srt-qtd_ano"></span></th>
+              <th class="text-center sortable" onclick="sortEscopo('realizado_mes')">Realizado Qtd/Mês <span id="srt-realizado_mes"></span></th>
+              <th class="text-center sortable" onclick="sortEscopo('realizado_ano')">Realizado Qtd/Ano <span id="srt-realizado_ano"></span></th>
+              <th class="sortable" style="min-width:140px" onclick="sortEscopo('progresso')">Progresso <span id="srt-progresso"></span></th>
+            </tr>
+          </thead>
+          <tbody id="t-escopo-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabela: Histórico de Entregas -->
+  <div class="card panel mb-4">
+    <div class="card-body">
+      <p class="sec-title mb-2">Histórico de Entregas (comentários)</p>
+      <div class="table-responsive" style="max-height:420px;overflow-y:auto">
+        <table class="table table-sm table-bordered mb-0">
+          <thead style="position:sticky;top:0;z-index:1">
+            <tr>
+              <th class="sortable" onclick="sortHist('data')">Data <span id="hsrt-data"></span></th>
+              <th class="sortable" onclick="sortHist('mes_ano')">Mês/Ano <span id="hsrt-mes_ano"></span></th>
+              <th class="sortable" onclick="sortHist('grupo')">Grupo <span id="hsrt-grupo"></span></th>
+              <th class="sortable" onclick="sortHist('projeto')">Projeto <span id="hsrt-projeto"></span></th>
+              <th class="sortable" onclick="sortHist('entregavel')">Entregável <span id="hsrt-entregavel"></span></th>
+              <th class="text-center sortable" onclick="sortHist('quantidade')">Qtd <span id="hsrt-quantidade"></span></th>
+              <th class="text-center sortable" onclick="sortHist('mapeado')">Mapeado <span id="hsrt-mapeado"></span></th>
+            </tr>
+          </thead>
+          <tbody id="t-hist-body"></tbody>
+        </table>
+        <p id="t-hist-empty" class="text-muted text-center py-3 mb-0" style="display:none">
+          Nenhuma entrega registrada no período.
+        </p>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /content-wrap -->
+
+<div id="hover-detail">
+  <div class="hd-title">Entregas realizadas:</div>
+  <ul id="hover-detail-list"></ul>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script>
+// ─── cores ────────────────────────────────────────────────────────────────────
+const BRAND_DARK = '#1A1A1A';
+const BRAND_LIME = '#DBED1F';
+const GREEN      = '#198754';
+const ORANGE     = '#E8710A';
+const RED        = '#DC3545';
+const GRAY       = '#6C757D';
+const COLORS = [BRAND_LIME, BRAND_DARK, ORANGE, '#9C27B0', '#00BCD4', '#FF5722', '#607D8B', '#795548'];
+
+// ─── estado global ────────────────────────────────────────────────────────────
+let _data = null;
+
+// sort — escopo
+let _sortCol     = null;
+let _sortDir     = 1;
+let _lastEscopoR = null;
+let _lastHasDate = false;
+let _lastSorted  = null;
+
+// sort — histórico (padrão: data desc)
+let _histSortCol  = 'data';
+let _histSortDir  = -1;
+let _lastEntregas = [];
+
+// ─── utilitários ──────────────────────────────────────────────────────────────
+function esc(v) {
+  if (v == null) return '';
+  return String(v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+// ─── inicialização ────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const res = await fetch('/api/data');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    _data = await res.json();
+  } catch (err) {
+    const msg = document.getElementById('error-msg');
+    msg.style.display = 'block';
+    msg.textContent   = 'Erro ao carregar dados: ' + err.message + '. Verifique o servidor.';
+    return;
+  }
+
+  _data.slugToName = {};
+  _data.escopo.forEach(e => { _data.slugToName[e.slug] = e.entregavel; });
+
+  document.getElementById('header-sub').textContent =
+    'Escopo: YESH HUB  |  A partir de 01/03/2026  |  ' + _data.kpis.meses_decorridos + ' meses decorridos';
+  document.getElementById('kpi-meses').textContent = _data.kpis.meses_decorridos;
+
+  populateGrupos(_data.grupos);
+  initHoverDelegation();
+  update();
+  updateSortIndicators('escopo');
+  updateSortIndicators('hist');
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ─── filtros ──────────────────────────────────────────────────────────────────
+function getFilters() {
+  return {
+    ini:   document.getElementById('f-ini').value,
+    fim:   document.getElementById('f-fim').value,
+    grupo: document.getElementById('f-grupo').value,
+  };
+}
+
+function filterEntregas(entregas, {ini, fim, grupo}) {
+  return entregas.filter(e => {
+    if (ini   && e.data < ini)           return false;
+    if (fim   && e.data && e.data > fim) return false;
+    if (grupo && e.grupo !== grupo)      return false;
+    return true;
+  });
+}
+
+function filterEscopo(escopo, {grupo}) {
+  return grupo ? escopo.filter(e => e.grupo === grupo) : escopo;
+}
+
+// ─── recalcula realizado ──────────────────────────────────────────────────────
+function computeRealizado(escopo, entregas_ano, entregas_mes) {
+  const totals_ano = {};
+  const totals_mes = {};
+  const detail_ano = {};
+  entregas_ano.forEach(e => {
+    if (e.mapeado && e.scope_slug) {
+      totals_ano[e.scope_slug] = (totals_ano[e.scope_slug] || 0) + e.quantidade;
+      if (!detail_ano[e.scope_slug]) detail_ano[e.scope_slug] = [];
+      detail_ano[e.scope_slug].push(e);
+    }
+  });
+  entregas_mes.forEach(e => {
+    if (e.mapeado && e.scope_slug)
+      totals_mes[e.scope_slug] = (totals_mes[e.scope_slug] || 0) + e.quantidade;
+  });
+  return escopo.map(item => ({
+    ...item,
+    realizado_ano:   totals_ano[item.slug] || 0,
+    realizado_mes:   totals_mes[item.slug] || 0,
+    entregas_detail: detail_ano[item.slug] || [],
+  }));
+}
+
+// ─── update global ────────────────────────────────────────────────────────────
+function update() {
+  const f        = getFilters();
+  const hasDate  = f.fim !== '';
+  const ent_ano  = filterEntregas(_data.entregas, {ini:'', fim:'', grupo:f.grupo});
+  const ent_mes  = filterEntregas(_data.entregas, f);
+  const escopo   = filterEscopo(_data.escopo, f);
+  const escopoR  = computeRealizado(escopo, ent_ano, ent_mes);
+
+  const totalPrev = escopoR.reduce((s, e) => s + e.previsto_acumulado, 0);
+  const totalReal = escopoR.reduce((s, e) => s + e.realizado_ano, 0);
+  const pct       = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
+
+  renderKpis(totalPrev, totalReal, pct);
+  renderChartEscopo(escopoR);
+  renderChartMensal(ent_mes);
+  renderEscopoTable(escopoR, hasDate);
+  renderHistTable(ent_mes);
+  checkUnmapped(ent_mes);
+}
+
+// ─── KPIs ─────────────────────────────────────────────────────────────────────
+function renderKpis(prev, real, pct) {
+  setKpi('kpi-previsto',  prev,    BRAND_DARK);
+  setKpi('kpi-realizado', real,    real >= prev ? GREEN : ORANGE);
+  setKpi('kpi-pct',       pct+'%', pct >= 80 ? GREEN : (pct >= 50 ? ORANGE : RED));
+}
+function setKpi(id, val, color) {
+  const el = document.getElementById(id);
+  el.textContent = val;
+  el.style.color = color;
+}
+
+// ─── gráfico: total contratado vs realizado ───────────────────────────────────
+function renderChartEscopo(escopoR) {
+  const height     = Math.max(320, escopoR.length * 28 + 80);
+  const labels     = escopoR.map(e => e.entregavel);
+  const contratado = escopoR.map(e => e.qtd_ano);
+  const realizado  = escopoR.map(e => e.realizado_ano);
+
+  Plotly.react('g-escopo', [
+    { name:'Total Contratado', y:labels, x:contratado, type:'bar', orientation:'h',
+      marker:{color:BRAND_DARK}, hovertemplate:'%{x}<extra></extra>' },
+    { name:'Realizado',        y:labels, x:realizado,  type:'bar', orientation:'h',
+      marker:{color:BRAND_LIME}, hovertemplate:'%{x}<extra></extra>' },
+  ], {
+    barmode: 'overlay',
+    title:   { text:'Total Contratado vs Realizado por Entregável', font:{size:13, family:'Inter'} },
+    height,
+    margin:  {l:260, r:20, t:40, b:40},
+    xaxis:   {title:'Quantidade'},
+    yaxis:   {autorange:'reversed'},
+    legend:  {orientation:'h', y:-0.08},
+    paper_bgcolor:'white', plot_bgcolor:'white',
+    font:    {family:'Inter'},
+  }, {responsive:true, displayModeBar:false});
+}
+
+// ─── gráfico: entregas por mês ────────────────────────────────────────────────
+function renderChartMensal(entregas) {
+  const meses = [...new Set(entregas.map(e => e.mes_ano))].sort();
+  const byEnt = {};
+  entregas.forEach(e => {
+    if (!e.mapeado) return;
+    const name = _data.slugToName[e.scope_slug] || e.hashtag;
+    if (!byEnt[name]) byEnt[name] = {};
+    byEnt[name][e.mes_ano] = (byEnt[name][e.mes_ano] || 0) + e.quantidade;
+  });
+  const traces = Object.entries(byEnt).map(([name, monthly], i) => ({
+    name,
+    x: meses,
+    y: meses.map(m => monthly[m] || 0),
+    type: 'bar',
+    marker: { color: COLORS[i % COLORS.length] },
+  }));
+  const el = document.getElementById('g-mensal');
+  const h  = Math.max(320, el.parentElement.clientHeight || 320);
+  Plotly.react('g-mensal', traces.length ? traces : [], {
+    barmode: 'stack',
+    title:   { text:'Entregas por Mês', font:{size:13, family:'Inter'} },
+    height: h,
+    margin:  {l:40, r:10, t:40, b:60},
+    xaxis:   {title:'Mês'},
+    yaxis:   {title:'Qtd'},
+    legend:  {orientation:'h', y:-0.2},
+    paper_bgcolor:'white', plot_bgcolor:'white',
+    font:    {family:'Inter'},
+  }, {responsive:true, displayModeBar:false});
+}
+
+// ─── tabela: escopo com progresso ─────────────────────────────────────────────
+function renderEscopoTable(escopoR, hasDate) {
+  _lastEscopoR = escopoR;
+  _lastHasDate = hasDate;
+  _lastSorted  = getSortedEscopo(escopoR);
+
+  document.getElementById('t-escopo-body').innerHTML = _lastSorted.map((e, i) => {
+    const pct    = e.qtd_ano > 0 ? Math.min(100, Math.round(100 * e.realizado_ano / e.qtd_ano)) : 0;
+    const barClr = pct >= 80 ? BRAND_LIME : (pct >= 50 ? ORANGE : (pct > 0 ? RED : GRAY));
+    const txtClr = pct >= 80 ? GREEN      : (pct >= 50 ? ORANGE : (pct > 0 ? RED : GRAY));
+    const realMes   = hasDate ? e.realizado_mes : '—';
+    const hasDetail = e.entregas_detail?.length > 0;
+    const tdExtra   = hasDetail
+      ? `data-row="${i}" style="color:${txtClr};cursor:help"`
+      : `style="color:${txtClr}"`;
+    return `<tr>
+      <td>${esc(e.grupo)}</td>
+      <td>${esc(e.entregavel)}</td>
+      <td class="text-center">${e.qtd_mes > 0 ? e.qtd_mes : '—'}</td>
+      <td class="text-center">${e.qtd_ano > 0 ? e.qtd_ano : '—'}</td>
+      <td class="text-center fw-bold">${realMes}</td>
+      <td class="text-center fw-bold" ${tdExtra}>${e.realizado_ano}</td>
+      <td>
+        <div class="progress mb-1" role="progressbar"
+             aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-bar" style="width:${pct}%;background:${barClr}"></div>
+        </div>
+        <small class="text-muted">${pct}%</small>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── tabela: histórico de entregas ────────────────────────────────────────────
+function renderHistTable(entregas) {
+  _lastEntregas = entregas;
+  const empty = document.getElementById('t-hist-empty');
+  const body  = document.getElementById('t-hist-body');
+  if (!entregas.length) {
+    body.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  const sorted = getSortedHist(entregas);
+  body.innerHTML = sorted.map(e => {
+    const nome  = e.mapeado ? esc(_data.slugToName[e.scope_slug] || e.hashtag) : esc(e.hashtag);
+    const badge = e.mapeado
+      ? '<span class="badge bg-success">✓</span>'
+      : '<span class="badge badge-warn">!</span>';
+    return `<tr class="${!e.mapeado ? 'table-warning' : ''}">
+      <td>${esc(e.data)}</td>
+      <td>${esc(e.mes_ano)}</td>
+      <td>${esc(e.grupo)}</td>
+      <td class="td-trunc" title="${esc(e.projeto)}">${esc(e.projeto)}</td>
+      <td>${nome}</td>
+      <td class="text-center fw-bold">${e.quantidade}</td>
+      <td class="text-center">${badge}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── alerta de entregas não mapeadas ──────────────────────────────────────────
+function checkUnmapped(entregas) {
+  const unmapped = entregas.filter(e => !e.mapeado);
+  const alertEl  = document.getElementById('alert-unmapped');
+  if (unmapped.length) {
+    document.getElementById('alert-unmapped-msg').textContent =
+      unmapped.length + ' entrega(s) com hashtag não reconhecido. ';
+    alertEl.style.display = '';
+  } else {
+    alertEl.style.display = 'none';
+  }
+}
+
+// ─── card flutuante de detalhe ────────────────────────────────────────────────
+const MAX_BULLETS = 8;
+let _rafId = null;
+
+function showDetail(details, evt) {
+  const list  = document.getElementById('hover-detail-list');
+  const show  = details.slice(0, MAX_BULLETS);
+  const extra = details.length - MAX_BULLETS;
+  list.innerHTML = show.map(d => {
+    const proj = d.projeto ? (d.projeto.length > 42 ? d.projeto.substring(0,42)+'…' : d.projeto) : '—';
+    return `<li><span style="color:#6C757D">${esc(d.data)}</span> — ${esc(proj)} <strong style="color:#198754">+${d.quantidade}</strong></li>`;
+  }).join('') + (extra > 0
+    ? `<li style="color:#6C757D;list-style:none;margin-top:4px">… e mais ${extra} entrega(s)</li>`
+    : '');
+  document.getElementById('hover-detail').style.display = 'block';
+  moveDetail(evt);
+}
+
+function moveDetail(evt) {
+  if (_rafId) cancelAnimationFrame(_rafId);
+  const cx = evt.clientX, cy = evt.clientY;
+  _rafId = requestAnimationFrame(() => {
+    const card = document.getElementById('hover-detail');
+    const vw = window.innerWidth, vh = window.innerHeight;
+    card.style.left = (cx + 18) + 'px';
+    card.style.top  = (cy + 12) + 'px';
+    const r = card.getBoundingClientRect();
+    if (r.right  > vw - 8) card.style.left = Math.max(8, cx - r.width  - 10) + 'px';
+    if (r.bottom > vh - 8) card.style.top  = Math.max(8, cy - r.height - 10) + 'px';
+  });
+}
+
+function hideDetail() {
+  document.getElementById('hover-detail').style.display = 'none';
+}
+
+// Delegação única no tbody — sem listeners por célula
+function initHoverDelegation() {
+  const tbody = document.getElementById('t-escopo-body');
+  tbody.addEventListener('mouseover', evt => {
+    const td = evt.target.closest('[data-row]');
+    if (!td) return;
+    const item = _lastSorted?.[parseInt(td.getAttribute('data-row'))];
+    if (item?.entregas_detail?.length) showDetail(item.entregas_detail, evt);
+  });
+  tbody.addEventListener('mousemove', moveDetail);
+  tbody.addEventListener('mouseleave', hideDetail);
+}
+
+// ─── ordenação — escopo ───────────────────────────────────────────────────────
+function sortEscopo(col) {
+  if (_sortCol === col) _sortDir *= -1;
+  else { _sortCol = col; _sortDir = 1; }
+  updateSortIndicators('escopo');
+  if (_lastEscopoR) renderEscopoTable(_lastEscopoR, _lastHasDate);
+}
+
+function getSortedEscopo(escopoR) {
+  if (!_sortCol) return escopoR;
+  return [...escopoR].sort((a, b) => {
+    if (_sortCol === 'grupo')         return _sortDir * (a.grupo||'').localeCompare(b.grupo||'');
+    if (_sortCol === 'entregavel')    return _sortDir * (a.entregavel||'').localeCompare(b.entregavel||'');
+    if (_sortCol === 'qtd_mes')       return _sortDir * ((a.qtd_mes||0) - (b.qtd_mes||0));
+    if (_sortCol === 'qtd_ano')       return _sortDir * ((a.qtd_ano||0) - (b.qtd_ano||0));
+    if (_sortCol === 'realizado_mes') return _sortDir * ((a.realizado_mes||0) - (b.realizado_mes||0));
+    if (_sortCol === 'realizado_ano') return _sortDir * ((a.realizado_ano||0) - (b.realizado_ano||0));
+    if (_sortCol === 'progresso') {
+      const va = a.qtd_ano > 0 ? a.realizado_ano / a.qtd_ano : 0;
+      const vb = b.qtd_ano > 0 ? b.realizado_ano / b.qtd_ano : 0;
+      return _sortDir * (va - vb);
+    }
+    return 0;
+  });
+}
+
+// ─── ordenação — histórico ────────────────────────────────────────────────────
+function sortHist(col) {
+  if (_histSortCol === col) _histSortDir *= -1;
+  else { _histSortCol = col; _histSortDir = 1; }
+  updateSortIndicators('hist');
+  if (_lastEntregas) renderHistTable(_lastEntregas);
+}
+
+function getSortedHist(entregas) {
+  const col = _histSortCol, dir = _histSortDir;
+  return [...entregas].sort((a, b) => {
+    if (col === 'quantidade') return dir * ((a.quantidade||0) - (b.quantidade||0));
+    if (col === 'mapeado')    return dir * ((a.mapeado?1:0) - (b.mapeado?1:0));
+    if (col === 'entregavel') {
+      const an = _data.slugToName[a.scope_slug] || a.hashtag || '';
+      const bn = _data.slugToName[b.scope_slug] || b.hashtag || '';
+      return dir * an.localeCompare(bn);
+    }
+    return dir * (a[col]||'').localeCompare(b[col]||'');
+  });
+}
+
+// ─── indicadores de ordenação ─────────────────────────────────────────────────
+function updateSortIndicators(table) {
+  if (table === 'escopo') {
+    ['grupo','entregavel','qtd_mes','qtd_ano','realizado_mes','realizado_ano','progresso'].forEach(col => {
+      const el = document.getElementById('srt-' + col);
+      if (el) el.textContent = _sortCol === col ? (_sortDir === 1 ? ' ▲' : ' ▼') : ' ↕';
+    });
+  } else {
+    ['data','mes_ano','grupo','projeto','entregavel','quantidade','mapeado'].forEach(col => {
+      const el = document.getElementById('hsrt-' + col);
+      if (el) el.textContent = _histSortCol === col ? (_histSortDir === 1 ? ' ▲' : ' ▼') : ' ↕';
+    });
+  }
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+function populateGrupos(grupos) {
+  const sel = document.getElementById('f-grupo');
+  grupos.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = opt.textContent = g;
+    sel.appendChild(opt);
+  });
+}
+
+// ─── eventos ──────────────────────────────────────────────────────────────────
+const debouncedUpdate = debounce(update, 200);
+['f-ini','f-fim'].forEach(id =>
+  document.getElementById(id).addEventListener('change', debouncedUpdate)
+);
+document.getElementById('f-grupo').addEventListener('change', update);
+document.getElementById('btn-exp').addEventListener('click', () => {
+  window.location.href = '/api/export?' + new URLSearchParams(getFilters()).toString();
+});
+
+init();
+</script>
+</body>
+</html>
