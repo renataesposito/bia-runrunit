@@ -1,11 +1,14 @@
 import io
 import json
+import os
 from flask import Flask, render_template, jsonify, request, send_file
+from flask_cors import CORS
 import pandas as pd
 import data_processor
 import export
 
 app = Flask(__name__)
+CORS(app, origins=["https://renataesposito.github.io"])
 
 print("Carregando escopo contratado...")
 try:
@@ -75,4 +78,5 @@ def api_export():
 
 
 if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=8050)
+    port = int(os.environ.get("PORT", 8050))
+    app.run(debug=False, host="0.0.0.0", port=port)

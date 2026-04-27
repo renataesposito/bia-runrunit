@@ -1,5 +1,6 @@
 requests
 pandas
 flask
+flask-cors
 openpyxl
 python-dotenv

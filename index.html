@@ -97,7 +97,7 @@
 <!-- HEADER NÚCLEA -->
 <header id="site-header">
   <div class="brand-logo">
-    <img src="/static/nuclea-logo.png"
+    <img src="https://bia-runrunit.onrender.com/static/nuclea-logo.png"
          alt="Logo Núclea"
          style="height:36px;width:auto;filter:invert(1) brightness(2)">
     <div style="border-left:1px solid #444;padding-left:14px">
@@ -286,7 +286,7 @@ function debounce(fn, ms) {
 // ─── inicialização ────────────────────────────────────────────────────────────
 async function init() {
   try {
-    const res = await fetch('/api/data');
+    const res = await fetch('https://bia-runrunit.onrender.com/api/data');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     _data = await res.json();
   } catch (err) {
@@ -683,7 +683,7 @@ const debouncedUpdate = debounce(update, 200);
 );
 document.getElementById('f-grupo').addEventListener('change', update);
 document.getElementById('btn-exp').addEventListener('click', () => {
-  window.location.href = '/api/export?' + new URLSearchParams(getFilters()).toString();
+  window.location.href = 'https://bia-runrunit.onrender.com/api/export?' + new URLSearchParams(getFilters()).toString();
 });
 
 init();
