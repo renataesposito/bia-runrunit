@@ -120,9 +120,9 @@
   <div class="row g-3 mb-3">
     <div class="col-md-3">
       <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-        <p class="kpi-title">Entregas Previstas (acumulado)</p>
-        <div class="kpi-value" id="kpi-previsto" style="color:#1A1A1A">—</div>
-        <small class="kpi-sub">itens contratados até hoje</small>
+        <p class="kpi-title">Saldo de Escopo</p>
+        <div class="kpi-value" id="kpi-saldo" style="color:#1A1A1A">—</div>
+        <small class="kpi-sub">itens ainda disponíveis</small>
       </div></div>
     </div>
     <div class="col-md-3">
@@ -141,9 +141,9 @@
     </div>
     <div class="col-md-3">
       <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-        <p class="kpi-title">Meses Decorridos</p>
-        <div class="kpi-value" id="kpi-meses" style="color:#1A1A1A">—</div>
-        <small class="kpi-sub">desde 01/03/2026</small>
+        <p class="kpi-title">Tempo de Contrato</p>
+        <div class="kpi-value" id="kpi-tempo" style="color:#1A1A1A">—</div>
+        <small class="kpi-sub" id="kpi-tempo-sub">decorrido / 12 meses</small>
       </div></div>
     </div>
   </div>
@@ -300,8 +300,8 @@ async function init() {
   _data.escopo.forEach(e => { _data.slugToName[e.slug] = e.entregavel; });
 
   document.getElementById('header-sub').textContent =
-    'Escopo: YESH HUB  |  A partir de 01/03/2026  |  ' + _data.kpis.meses_decorridos + ' meses decorridos';
-  document.getElementById('kpi-meses').textContent = _data.kpis.meses_decorridos;
+    'Escopo: ' + _data.kpis.escopo_nome + '  |  A partir de 01/03/2026  |  ' + _data.kpis.meses_decorridos + ' meses decorridos';
+  document.getElementById('kpi-tempo').textContent = _data.kpis.meses_decorridos + '/' + _data.kpis.tempo_contrato_meses + 'm';
 
   populateGrupos(_data.grupos);
   initHoverDelegation();
@@ -368,9 +368,11 @@ function update() {
 
   const totalPrev = escopoR.reduce((s, e) => s + e.previsto_acumulado, 0);
   const totalReal = escopoR.reduce((s, e) => s + e.realizado_ano, 0);
+  const saldo     = _data.kpis.saldo_escopo;
+  const tempo    = _data.kpis.meses_decorridos;
   const pct       = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
 
-  renderKpis(totalPrev, totalReal, pct);
+  renderKpis(saldo, totalReal, pct, tempo);
   renderChartEscopo(escopoR);
   renderChartMensal(ent_mes);
   renderEscopoTable(escopoR, hasDate);
@@ -379,10 +381,11 @@ function update() {
 }
 
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
-function renderKpis(prev, real, pct) {
-  setKpi('kpi-previsto',  prev,    BRAND_DARK);
-  setKpi('kpi-realizado', real,    real >= prev ? GREEN : ORANGE);
+function renderKpis(saldo, real, pct, tempo) {
+  setKpi('kpi-saldo',   saldo, saldo >= 0 ? BRAND_DARK : RED);
+  setKpi('kpi-realizado', real,  real > 0 ? BRAND_LIME : BRAND_DARK);
   setKpi('kpi-pct',       pct+'%', pct >= 80 ? GREEN : (pct >= 50 ? ORANGE : RED));
+  setKpi('kpi-tempo',     tempo + 'm', BRAND_DARK);
 }
 function setKpi(id, val, color) {
   const el = document.getElementById(id);

@@ -60,6 +60,12 @@ A busca **não é restrita ao grupo da tarefa**; um entregável pode ser realiza
 
 **Convenção recomendada**: usar o nome exato do ENTREGÁVEL como nome da tag no RunRun.it. Isso garante match exato e elimina ambiguidade.
 
+### Regras de Contagem
+
+**Posts de Redes Sociais:** Se a arte for igual, mas a legenda mudar para redes diferentes (Instagram vs. LinkedIn), conta-se como **2 posts**. Se arte e legenda forem 100% replicadas, conta-se como **1 post**. Esta regra é uma convenção operacional documentada para fins de auditoria — o sistema contabiliza baseado puramente nas hashtags inseridas nos comentários, então a responsabilidade de seguir esta regra é de quem postar o comentário.
+
+**Reels/Vídeos curtos:** Contam como items отдельные distinctos no escopo. Cada upload é contabilizado como 1 unidade, independente da duração.
+
 ### Escopo — Excel
 
 Arquivo: `Escopo Nuclea.xlsx`, aba **`PROD`**.  

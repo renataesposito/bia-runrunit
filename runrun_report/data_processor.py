@@ -7,6 +7,8 @@ from config import CLIENT_NAME, DATA_INICIO
 import api_client
 
 EXCEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Escopo Nuclea.xlsx")
+TEMPO_CONTRATO_MESES = 12  # contrato anual: março a fevereiro
+ESCOPO_NOME = "YESH HUB"   # nome do escopo/contrato (usado no header)
 
 
 def _slug(text: str) -> str:
@@ -153,10 +155,16 @@ def escopo_com_realizado(escopo: pd.DataFrame, entregas: pd.DataFrame) -> pd.Dat
 def compute_kpis(escopo: pd.DataFrame, entregas: pd.DataFrame) -> dict:
     total_previsto = int(escopo["previsto_acumulado"].sum())
     total_realizado = int(entregas.loc[entregas["mapeado"], "quantidade"].sum()) if not entregas.empty else 0
+    total_contrato = int(escopo["qtd_ano"].sum()) if not escopo.empty else 0
+    saldo_escopo = total_contrato - total_realizado
     pct = round(100 * total_realizado / total_previsto, 1) if total_previsto else 0
     return {
-        "total_previsto":  total_previsto,
-        "total_realizado": total_realizado,
-        "pct_realizacao":  pct,
-        "meses_decorridos": round(_meses_decorridos(), 1),
+        "total_previsto":       total_previsto,
+        "total_realizado":      total_realizado,
+        "total_contrato":       total_contrato,
+        "saldo_escopo":         saldo_escopo,
+        "pct_realizacao":       pct,
+        "meses_decorridos":      round(_meses_decorridos(), 1),
+        "tempo_contrato_meses": TEMPO_CONTRATO_MESES,
+        "escopo_nome":          ESCOPO_NOME,
     }
