@@ -14,6 +14,8 @@ _HEADERS = {
 
 _REQUEST_INTERVAL = 0.7  # ~85 req/min, abaixo do limite de 100
 
+FETCH_ALL_TASKS = os.getenv("FETCH_ALL_TASKS", "false").lower() == "true"
+
 
 def _get(endpoint: str, params: dict = None) -> list | dict:
     url = f"{API_BASE_URL}/{endpoint}"
@@ -49,12 +51,27 @@ def get_client_id(client_name: str) -> int | None:
 
 
 def get_gestao_tasks(client_id: int) -> list:
-    """Retorna todas as tarefas 'Gestão de Atendimento' do cliente (abertas e fechadas)."""
-    open_tasks   = _get_paginated("tasks", {"client_id": client_id})
-    closed_tasks = _get_paginated("tasks", {"client_id": client_id, "is_closed": "true"})
-    all_tasks = {t["id"]: t for t in open_tasks + closed_tasks}.values()
+    """Retorna todas as tarefas 'Gestão de Atendimento' do cliente (abertas e fechadas).
+
+    Se FETCH_ALL_TASKS=true, retorna TODAS as tarefas do cliente sem filtro de título,
+    útil para debug e verificação de tarefas fora do padrão 'Gestão de Atendimento'.
+    """
+    if FETCH_ALL_TASKS:
+        open_tasks   = _get_paginated("tasks", {"client_id": client_id})
+        closed_tasks = _get_paginated("tasks", {"client_id": client_id, "is_closed": "true"})
+        all_tasks = open_tasks + closed_tasks
+    else:
+        open_tasks   = _get_paginated("tasks", {"client_id": client_id})
+        closed_tasks = _get_paginated("tasks", {"client_id": client_id, "is_closed": "true"})
+        all_tasks = open_tasks + closed_tasks
+
+    unique_tasks = {t["id"]: t for t in all_tasks}.values()
+
+    if FETCH_ALL_TASKS:
+        return list(unique_tasks)
+
     return [
-        t for t in all_tasks
+        t for t in unique_tasks
         if "gest" in t.get("title", "").lower() and "atend" in t.get("title", "").lower()
     ]
 

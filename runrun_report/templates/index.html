@@ -24,6 +24,42 @@
     .brand-logo  { display:flex; align-items:center; gap:10px; }
     .brand-title { color: var(--brand-lime); font-size:14px; font-weight:600; }
     #header-sub  { color:#888; font-size:11px; margin-top:4px; margin-bottom:0; }
+    .header-right { margin-left:auto; display:flex; align-items:center; gap:12px; }
+
+    /* ── View Toggle ── */
+    .view-toggle {
+      display:flex; background:#333; border-radius:6px; overflow:hidden;
+    }
+    .view-toggle button {
+      background:transparent; border:none; color:#888; padding:6px 14px;
+      font-size:12px; font-weight:500; cursor:pointer; transition:all .2s;
+    }
+    .view-toggle button.active {
+      background:var(--brand-lime); color:var(--brand-dark);
+    }
+    .view-toggle button:hover:not(.active) { color:#fff; }
+
+    /* ── Debug button ── */
+    .btn-debug {
+      background:transparent; border:1px solid #555; color:#888;
+      padding:5px 12px; border-radius:4px; font-size:11px; cursor:pointer;
+    }
+    .btn-debug:hover { border-color:#888; color:#fff; }
+
+    /* ── Month buttons ── */
+    .month-buttons {
+      display:flex; flex-wrap:wrap; gap:6px;
+    }
+    .month-btn {
+      background:#f8f9fa; border:1px solid #dee2e6; color:#495057;
+      padding:4px 10px; border-radius:4px; font-size:11px; cursor:pointer;
+      transition:all .15s;
+    }
+    .month-btn:hover { background:#e9ecef; }
+    .month-btn.active {
+      background:var(--brand-lime); border-color:var(--brand-lime); color:var(--brand-dark); font-weight:600;
+    }
+    .month-btn:disabled { opacity:0.4; cursor:not-allowed; }
 
     /* ── Layout ── */
     .content-wrap { padding: 16px 24px; }
@@ -104,6 +140,13 @@
       <span class="brand-title">Previsto × Realizado</span>
     </div>
   </div>
+  <div class="header-right">
+    <div class="view-toggle">
+      <button id="btn-view-anual" class="active" onclick="setView('anual')">Anual</button>
+      <button id="btn-view-mensal" onclick="setView('mensal')">Mensal</button>
+    </div>
+    <button id="btn-debug" class="btn-debug" style="display:none" onclick="window.location.href='/debug'">⚙ Debug</button>
+  </div>
   <p id="header-sub">Escopo: YESH HUB  |  A partir de 01/03/2026</p>
 </header>
 
@@ -148,8 +191,8 @@
     </div>
   </div>
 
-  <!-- Filtros -->
-  <div class="card panel mb-3">
+  <!-- Filtros - Visão Anual -->
+  <div class="card panel mb-3" id="filtros-anual">
     <div class="card-body">
       <div class="row g-2 align-items-end">
         <div class="col-md-2">
@@ -168,6 +211,32 @@
         </div>
         <div class="col-md-4 d-flex align-items-end justify-content-end">
           <button class="btn btn-sm" id="btn-exp">⬇ Exportar Excel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filtros - Visão Mensal -->
+  <div class="card panel mb-3" id="filtros-mensal" style="display:none">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label small fw-bold mb-1" for="f-ano">Ano</label>
+          <select id="f-ano" class="form-select form-select-sm">
+            <option value="">Selecione...</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-bold mb-1">Mês</label>
+          <div class="month-buttons" id="month-buttons">
+            <!-- Botões gerados via JS -->
+          </div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-bold mb-1" for="f-grupo-mensal">Grupo</label>
+          <select id="f-grupo-mensal" class="form-select form-select-sm">
+            <option value="">Todos os grupos</option>
+          </select>
         </div>
       </div>
     </div>
@@ -304,6 +373,7 @@ async function init() {
   document.getElementById('kpi-tempo').textContent = _data.kpis.meses_decorridos + '/' + _data.kpis.tempo_contrato_meses + 'm';
 
   populateGrupos(_data.grupos);
+  populateGruposMensal(_data.grupos);
   initHoverDelegation();
   update();
   updateSortIndicators('escopo');
@@ -394,17 +464,19 @@ function setKpi(id, val, color) {
 }
 
 // ─── gráfico: previsto acumulado vs realizado ─────────────────────────────────
-function renderChartEscopo(escopoR) {
+function renderChartEscopo(escopoR, isMensal = false) {
   const height = Math.max(320, escopoR.length * 28 + 80);
   const labels = escopoR.map(e => e.entregavel);
 
-  const realizadoSeg = escopoR.map(e => Math.min(e.realizado_ano, e.qtd_ano));
-  const saldo        = escopoR.map(e => Math.max(e.qtd_ano - e.realizado_ano, 0));
-  const overflow     = escopoR.map(e => Math.max(e.realizado_ano - e.qtd_ano, 0));
+  const divider = isMensal ? 12 : 1;
+  const qtdAnoAdjusted = escopoR.map(e => e.qtd_ano / divider);
+  const realizadoSeg = escopoR.map((e, i) => Math.min(e.realizado_ano, qtdAnoAdjusted[i]));
+  const saldo      = escopoR.map((e, i) => Math.max(qtdAnoAdjusted[i] - e.realizado_ano, 0));
+  const overflow   = escopoR.map((e, i) => Math.max(e.realizado_ano - qtdAnoAdjusted[i], 0));
 
   const customdata = escopoR.map((e, i) => [
     e.realizado_ano,
-    e.qtd_ano,
+    qtdAnoAdjusted[i],
     saldo[i],
     overflow[i],
     e.entregavel,
@@ -413,10 +485,10 @@ function renderChartEscopo(escopoR) {
   const hoverTplSaldo    = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Saldo: %{customdata[2]}<extra></extra>';
   const hoverTplOverflow = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Acima do previsto: +%{customdata[3]}<extra></extra>';
 
-  const annotations = escopoR.map(e => ({
-    x: Math.max(e.qtd_ano, e.realizado_ano),
+  const annotations = escopoR.map((e, i) => ({
+    x: Math.max(qtdAnoAdjusted[i], e.realizado_ano),
     y: e.entregavel,
-    text: `/ ${e.qtd_ano} plan.`,
+    text: `/ ${qtdAnoAdjusted[i].toFixed(0)} plan.`,
     xanchor: 'left',
     yanchor: 'middle',
     showarrow: false,
@@ -424,6 +496,10 @@ function renderChartEscopo(escopoR) {
     xref: 'x',
     yref: 'y',
   }));
+
+  const chartTitle = isMensal 
+    ? 'Previsto Mensal vs Realizado por Entregável' 
+    : 'Previsto Acumulado vs Realizado por Entregável';
 
   Plotly.react('g-escopo', [
     { name: 'Realizado', y: labels, x: realizadoSeg, type: 'bar', orientation: 'h',
@@ -434,7 +510,7 @@ function renderChartEscopo(escopoR) {
       marker: { color: RED }, customdata, hovertemplate: hoverTplOverflow },
   ], {
     barmode: 'stack',
-    title:   { text: 'Previsto Acumulado vs Realizado por Entregável', font: { size: 13, family: 'Inter' } },
+    title:   { text: chartTitle, font: { size: 13, family: 'Inter' } },
     height,
     margin:  { l: 260, r: 120, t: 40, b: 40 },
     xaxis:   { title: 'Quantidade' },
@@ -448,34 +524,45 @@ function renderChartEscopo(escopoR) {
 
 // ─── gráfico: entregas por mês ────────────────────────────────────────────────
 function renderChartMensal(entregas) {
-  const meses = [...new Set(entregas.map(e => e.mes_ano))].sort();
   const byEnt = {};
   entregas.forEach(e => {
     if (!e.mapeado) return;
     const name = _data.slugToName[e.scope_slug] || e.hashtag;
-    if (!byEnt[name]) byEnt[name] = {};
-    byEnt[name][e.mes_ano] = (byEnt[name][e.mes_ano] || 0) + e.quantidade;
+    if (!byEnt[name]) byEnt[name] = 0;
+    byEnt[name] += e.quantidade;
   });
-  const traces = Object.entries(byEnt).map(([name, monthly], i) => ({
-    name,
-    x: meses,
-    y: meses.map(m => monthly[m] || 0),
-    type: 'bar',
-    marker: { color: COLORS[i % COLORS.length] },
-  }));
+  
+  const labels = Object.keys(byEnt);
+  const values = Object.values(byEnt);
+  const total = values.reduce((s, v) => s + v, 0);
+  
+  if (labels.length === 0) {
+    Plotly.react('g-mensal', [], { title: { text: 'Entregas por Mês', font: { size: 13, family: 'Inter' } } });
+    return;
+  }
+  
+  const parents = labels.map(() => '');
+  const colors = labels.map((_, i) => COLORS[i % COLORS.length]);
+  
+  const trace = {
+    type: 'treemap',
+    labels,
+    values,
+    parents,
+    marker: { colors },
+    textinfo: 'label+value+percent parent',
+    hovertemplate: '<b>%{label}</b><br>Quantidade: %{value}<br>Total: %{percentParent}<extra></extra>',
+  };
+  
   const el = document.getElementById('g-mensal');
-  const h  = Math.max(320, el.parentElement.clientHeight || 320);
-  Plotly.react('g-mensal', traces.length ? traces : [], {
-    barmode: 'stack',
-    title:   { text:'Entregas por Mês', font:{size:13, family:'Inter'} },
+  const h = Math.max(320, el.parentElement.clientHeight || 320);
+  Plotly.react('g-mensal', [trace], {
+    title: { text: `Volume Total: ${total} entregas`, font: { size: 13, family: 'Inter' } },
     height: h,
-    margin:  {l:40, r:10, t:40, b:60},
-    xaxis:   {title:'Mês'},
-    yaxis:   {title:'Qtd'},
-    legend:  {orientation:'h', y:-0.2},
-    paper_bgcolor:'white', plot_bgcolor:'white',
-    font:    {family:'Inter'},
-  }, {responsive:true, displayModeBar:false});
+    margin: { l: 10, r: 10, t: 40, b: 10 },
+    paper_bgcolor: 'white',
+    font: { family: 'Inter' },
+  }, { responsive: true, displayModeBar: false });
 }
 
 // ─── tabela: escopo com progresso ─────────────────────────────────────────────
@@ -679,17 +766,166 @@ function populateGrupos(grupos) {
   });
 }
 
+function populateGruposMensal(grupos) {
+  const sel = document.getElementById('f-grupo-mensal');
+  grupos.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = opt.textContent = g;
+    sel.appendChild(opt);
+  });
+}
+
+// ─── View Toggle (Mensal / Anual) ───────────────────────────────────────────────
+let _currentView = 'anual';
+let _selectedMonth = null;
+
+const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+function setView(view) {
+  _currentView = view;
+  document.getElementById('btn-view-anual').classList.toggle('active', view === 'anual');
+  document.getElementById('btn-view-mensal').classList.toggle('active', view === 'mensal');
+  
+  document.getElementById('filtros-anual').style.display = view === 'anual' ? '' : 'none';
+  document.getElementById('filtros-mensal').style.display = view === 'mensal' ? '' : 'none';
+  
+  if (view === 'mensal') {
+    populateMonthButtons();
+  }
+  
+  update();
+}
+
+function populateMonthButtons() {
+  const container = document.getElementById('month-buttons');
+  const anoSelect = document.getElementById('f-ano');
+  const mesesComDados = _data.meses_com_dados || [];
+  const anosComDados = _data.anos_com_dados || [];
+  
+  // Popula anos
+  anoSelect.innerHTML = '<option value="">Selecione...</option>';
+  anosComDados.forEach(ano => {
+    const opt = document.createElement('option');
+    opt.value = opt.textContent = ano;
+    anoSelect.appendChild(opt);
+  });
+  
+  // Se só tiver o ano atual, exibe apenas ele
+  if (anosComDados.length === 1) {
+    anoSelect.value = anosComDados[0];
+    anoSelect.disabled = true;
+  }
+  
+  // Gera botões de meses
+  container.innerHTML = '';
+  MESES_NOME.forEach((nome, idx) => {
+    const mes = String(idx + 1).padStart(2, '0');
+    const mesAno = `${anoSelect.value || new Date().getFullYear()}-${mes}`;
+    const temDados = mesesComDados.some(m => m.startsWith(mesAno.substring(0, 4)) && m.endsWith(mes));
+    
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'month-btn' + (temDados ? '' : ' disabled');
+    btn.disabled = !temDados;
+    btn.textContent = nome;
+    btn.dataset.mes = mes;
+    btn.onclick = () => selectMonth(btn, mes);
+    container.appendChild(btn);
+  });
+}
+
+function selectMonth(btn, mes) {
+  document.querySelectorAll('.month-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _selectedMonth = mes;
+  update();
+}
+
+function getFiltersMensal() {
+  const ano = document.getElementById('f-ano').value;
+  const grupo = document.getElementById('f-grupo-mensal').value;
+  return { ano, mes: _selectedMonth, grupo };
+}
+
+// ─── Debug mode check ────────────────────────────────────────────────────────────
+async function checkDebugMode() {
+  try {
+    const res = await fetch('/api/debug/status');
+    const data = await res.json();
+    if (data.enabled) {
+      document.getElementById('btn-debug').style.display = 'block';
+    }
+  } catch (err) {
+    // Debug endpoint não disponível
+  }
+}
+
 // ─── eventos ──────────────────────────────────────────────────────────────────
 const debouncedUpdate = debounce(update, 200);
 ['f-ini','f-fim'].forEach(id =>
   document.getElementById(id).addEventListener('change', debouncedUpdate)
 );
 document.getElementById('f-grupo').addEventListener('change', update);
+document.getElementById('f-grupo-mensal').addEventListener('change', update);
+document.getElementById('f-ano').addEventListener('change', () => {
+  populateMonthButtons();
+  update();
+});
 document.getElementById('btn-exp').addEventListener('click', () => {
-  window.location.href = '/api/export?' + new URLSearchParams(getFilters()).toString();
+  const params = _currentView === 'anual' ? getFilters() : getFiltersMensal();
+  window.location.href = '/api/export?' + new URLSearchParams(params).toString();
 });
 
+// Override update function to handle both views
+const _originalUpdate = update;
+update = function() {
+  if (_currentView === 'anual') {
+    _originalUpdate();
+  } else {
+    updateMensal();
+  }
+};
+
+function updateMensal() {
+  const f = getFiltersMensal();
+  const ano = f.ano;
+  const mes = f.mes;
+  const grupo = f.grupo;
+  
+  let ent = _data.entregas;
+  if (ano) {
+    ent = ent.filter(e => e.data && e.data.startsWith(ano));
+  }
+  if (mes) {
+    ent = ent.filter(e => e.mes_ano === `${ano}-${mes}`);
+  }
+  if (grupo) {
+    ent = ent.filter(e => e.grupo === grupo);
+  }
+  
+  let escopo = grupo ? _data.escopo.filter(e => e.grupo === grupo) : _data.escopo;
+  escopo = escopo.map(e => ({
+    ...e,
+    previsto_acumulado: e.previsto_acumulado / 12,
+  }));
+  const escopoR = computeRealizado(escopo, ent, ent);
+  
+  const totalPrev = escopoR.reduce((s, e) => s + e.previsto_acumulado, 0);
+  const totalReal = escopoR.reduce((s, e) => s + e.realizado_ano, 0);
+  const saldo = _data.kpis.saldo_escopo;
+  const tempo = _data.kpis.meses_decorridos;
+  const pct = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
+  
+  renderKpis(saldo, totalReal, pct, tempo);
+  renderChartEscopo(escopoR, true);
+  renderChartMensal(ent);
+  renderEscopoTable(escopoR, !!mes);
+  renderHistTable(ent);
+  checkUnmapped(ent);
+}
+
 init();
+checkDebugMode();
 </script>
 </body>
 </html>
