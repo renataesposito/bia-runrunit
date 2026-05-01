@@ -9,7 +9,7 @@
   <style>
     :root {
       --brand-dark: #1A1A1A;
-      --brand-lime: #DBED1F;
+      --brand-lime: #9e91c8;
       --brand-mint: #66FECB;
     }
     * { font-family: 'Inter', system-ui, sans-serif; }
@@ -317,8 +317,8 @@
 <script>
 // ─── cores ────────────────────────────────────────────────────────────────────
 const BRAND_DARK = '#1A1A1A';
-const BRAND_LIME = '#DBED1F';
-const GREEN      = '#198754';
+const BRAND_LIME = '#9e91c8';
+const GREEN      = '#9e91c8';
 const ORANGE     = '#E8710A';
 const RED        = '#DC3545';
 const GRAY       = '#6C757D';
@@ -369,8 +369,8 @@ async function init() {
   _data.escopo.forEach(e => { _data.slugToName[e.slug] = e.entregavel; });
 
   document.getElementById('header-sub').textContent =
-    'Escopo: ' + _data.kpis.escopo_nome + '  |  A partir de 01/03/2026  |  ' + _data.kpis.meses_decorridos + ' meses decorridos';
-  document.getElementById('kpi-tempo').textContent = _data.kpis.meses_decorridos + '/' + _data.kpis.tempo_contrato_meses + 'm';
+    'Escopo: ' + _data.kpis.escopo_nome + '  |  A partir de 01/03/2026  |  ' + Math.round(_data.kpis.meses_decorridos) + ' meses decorridos';
+  document.getElementById('kpi-tempo').textContent = Math.round(_data.kpis.meses_decorridos) + '/' + _data.kpis.tempo_contrato_meses + 'm';
 
   populateGrupos(_data.grupos);
   populateGruposMensal(_data.grupos);
@@ -436,11 +436,11 @@ function update() {
   const escopo   = filterEscopo(_data.escopo, f);
   const escopoR  = computeRealizado(escopo, ent_ano, ent_mes);
 
-  const totalPrev = escopoR.reduce((s, e) => s + e.previsto_acumulado, 0);
+  const totalPrev = escopoR.reduce((s, e) => s + (e.qtd_ano || 0), 0);
   const totalReal = escopoR.reduce((s, e) => s + e.realizado_ano, 0);
-  const saldo     = _data.kpis.saldo_escopo;
-  const tempo    = _data.kpis.meses_decorridos;
-  const pct       = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
+  const saldo = totalPrev - totalReal;
+  const tempo = _data.kpis.meses_decorridos;
+  const pct = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
 
   renderKpis(saldo, totalReal, pct, tempo);
   renderChartEscopo(escopoR);
@@ -452,10 +452,10 @@ function update() {
 
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
 function renderKpis(saldo, real, pct, tempo) {
-  setKpi('kpi-saldo',   saldo, saldo >= 0 ? BRAND_DARK : RED);
-  setKpi('kpi-realizado', real,  real > 0 ? BRAND_LIME : BRAND_DARK);
+  setKpi('kpi-saldo',   Math.round(saldo), saldo >= 0 ? BRAND_DARK : RED);
+  setKpi('kpi-realizado', Math.round(real),  real > 0 ? BRAND_LIME : BRAND_DARK);
   setKpi('kpi-pct',       pct+'%', pct >= 80 ? GREEN : (pct >= 50 ? ORANGE : RED));
-  setKpi('kpi-tempo',     tempo + 'm', BRAND_DARK);
+  setKpi('kpi-tempo',     Math.round(tempo) + 'm', BRAND_DARK);
 }
 function setKpi(id, val, color) {
   const el = document.getElementById(id);
@@ -464,42 +464,32 @@ function setKpi(id, val, color) {
 }
 
 // ─── gráfico: previsto acumulado vs realizado ─────────────────────────────────
-function renderChartEscopo(escopoR, isMensal = false) {
+function renderChartEscopo(escopoR, isMensal = false, dividerOverride = null) {
   const height = Math.max(320, escopoR.length * 28 + 80);
   const labels = escopoR.map(e => e.entregavel);
 
-  const divider = isMensal ? 12 : 1;
+  const divider = dividerOverride !== null ? dividerOverride : (isMensal ? 12 : 1);
   const qtdAnoAdjusted = escopoR.map(e => e.qtd_ano / divider);
   const realizadoSeg = escopoR.map((e, i) => Math.min(e.realizado_ano, qtdAnoAdjusted[i]));
   const saldo      = escopoR.map((e, i) => Math.max(qtdAnoAdjusted[i] - e.realizado_ano, 0));
   const overflow   = escopoR.map((e, i) => Math.max(e.realizado_ano - qtdAnoAdjusted[i], 0));
 
   const customdata = escopoR.map((e, i) => [
-    e.realizado_ano,
-    qtdAnoAdjusted[i],
-    saldo[i],
-    overflow[i],
+    Math.round(e.realizado_ano),
+    Math.round(qtdAnoAdjusted[i]),
+    Math.round(saldo[i]),
+    Math.round(overflow[i]),
     e.entregavel,
   ]);
 
   const hoverTplSaldo    = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Saldo: %{customdata[2]}<extra></extra>';
   const hoverTplOverflow = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Acima do previsto: +%{customdata[3]}<extra></extra>';
 
-  const annotations = escopoR.map((e, i) => ({
-    x: Math.max(qtdAnoAdjusted[i], e.realizado_ano),
-    y: e.entregavel,
-    text: `/ ${qtdAnoAdjusted[i].toFixed(0)} plan.`,
-    xanchor: 'left',
-    yanchor: 'middle',
-    showarrow: false,
-    font: { size: 10, color: '#6C757D', family: 'Inter' },
-    xref: 'x',
-    yref: 'y',
-  }));
-
   const chartTitle = isMensal 
-    ? 'Previsto Mensal vs Realizado por Entregável' 
+    ? 'Previsto Mensal vs Realizado por Entregável'
     : 'Previsto Acumulado vs Realizado por Entregável';
+
+  const planLabel = isMensal ? '/Mês' : '/Ano';
 
   Plotly.react('g-escopo', [
     { name: 'Realizado', y: labels, x: realizadoSeg, type: 'bar', orientation: 'h',
@@ -516,7 +506,17 @@ function renderChartEscopo(escopoR, isMensal = false) {
     xaxis:   { title: 'Quantidade' },
     yaxis:   { autorange: 'reversed' },
     legend:  { orientation: 'h', y: -0.08 },
-    annotations,
+    annotations: escopoR.map((e, i) => ({
+      x: Math.max(qtdAnoAdjusted[i], e.realizado_ano),
+      y: e.entregavel,
+      text: `${planLabel} ${Math.round(qtdAnoAdjusted[i])}`,
+      xanchor: 'left',
+      yanchor: 'middle',
+      showarrow: false,
+      font: { size: 10, color: '#6C757D', family: 'Inter' },
+      xref: 'x',
+      yref: 'y',
+    })),
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     font: { family: 'Inter' },
   }, { responsive: true, displayModeBar: false });
@@ -532,34 +532,41 @@ function renderChartMensal(entregas) {
     byEnt[name] += e.quantidade;
   });
   
-  const labels = Object.keys(byEnt);
-  const values = Object.values(byEnt);
-  const total = values.reduce((s, v) => s + v, 0);
+  let entries = Object.entries(byEnt).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, v) => s + v[1], 0);
   
-  if (labels.length === 0) {
+  if (entries.length === 0) {
     Plotly.react('g-mensal', [], { title: { text: 'Entregas por Mês', font: { size: 13, family: 'Inter' } } });
     return;
   }
   
-  const parents = labels.map(() => '');
-  const colors = labels.map((_, i) => COLORS[i % COLORS.length]);
+  if (entries.length > 10) {
+    const top10 = entries.slice(0, 10);
+    const others = entries.slice(10).reduce((s, v) => s + v[1], 0);
+    entries = [...top10, ['Others', others]];
+  }
+  
+  const labels = entries.map(e => e[0]);
+  const values = entries.map(e => Math.round(e[1]));
+  const colors = entries.map((_, i) => COLORS[i % COLORS.length]);
   
   const trace = {
-    type: 'treemap',
+    type: 'pie',
     labels,
     values,
-    parents,
     marker: { colors },
-    textinfo: 'label+value+percent parent',
-    hovertemplate: '<b>%{label}</b><br>Quantidade: %{value}<br>Total: %{percentParent}<extra></extra>',
+    textinfo: 'label+percent',
+    hovertemplate: '<b>%{label}</b><br>Quantidade: %{value:.0f}<br>(%{percent})<extra></extra>',
+    sort: false,
   };
   
   const el = document.getElementById('g-mensal');
-  const h = Math.max(320, el.parentElement.clientHeight || 320);
+  const h = Math.max(400, el.parentElement.clientHeight || 400);
   Plotly.react('g-mensal', [trace], {
-    title: { text: `Volume Total: ${total} entregas`, font: { size: 13, family: 'Inter' } },
+    title: { text: `Volume Total: ${Math.round(total)} entregas`, font: { size: 13, family: 'Inter' } },
     height: h,
-    margin: { l: 10, r: 10, t: 40, b: 10 },
+    margin: { l: 40, r: 40, t: 50, b: 100 },
+    legend: { orientation: 'h', y: -0.15, x: 0.5, xanchor: 'center' },
     paper_bgcolor: 'white',
     font: { family: 'Inter' },
   }, { responsive: true, displayModeBar: false });
@@ -582,15 +589,15 @@ function renderEscopoTable(escopoR, hasDate) {
     const tdExtra   = hasDetail
       ? `data-row="${i}" style="color:${txtClr};cursor:help"`
       : `style="color:${txtClr}"`;
-    const tdMesPrev = hasDate ? `<td class="text-center">${e.qtd_mes > 0 ? e.qtd_mes : '—'}</td>` : '';
-    const tdMesReal = hasDate ? `<td class="text-center fw-bold">${e.realizado_mes}</td>` : '';
+    const tdMesPrev = hasDate ? `<td class="text-center">${e.qtd_mes > 0 ? Math.round(e.qtd_mes) : '—'}</td>` : '';
+    const tdMesReal = hasDate ? `<td class="text-center fw-bold">${Math.round(e.realizado_mes)}</td>` : '';
     return `<tr>
       <td>${esc(e.grupo)}</td>
       <td>${esc(e.entregavel)}</td>
       ${tdMesPrev}
-      <td class="text-center">${e.qtd_ano > 0 ? e.qtd_ano : '—'}</td>
+      <td class="text-center">${e.qtd_ano > 0 ? Math.round(e.qtd_ano) : '—'}</td>
       ${tdMesReal}
-      <td class="text-center fw-bold" ${tdExtra}>${e.realizado_ano}</td>
+      <td class="text-center fw-bold" ${tdExtra}>${Math.round(e.realizado_ano)}</td>
       <td>
         <div class="progress mb-1" role="progressbar"
              aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
@@ -654,7 +661,7 @@ function showDetail(details, evt) {
   const extra = details.length - MAX_BULLETS;
   list.innerHTML = show.map(d => {
     const proj = d.projeto ? (d.projeto.length > 42 ? d.projeto.substring(0,42)+'…' : d.projeto) : '—';
-    return `<li><span style="color:#6C757D">${esc(d.data)}</span> — ${esc(proj)} <strong style="color:#198754">+${d.quantidade}</strong></li>`;
+    return `<li><span style="color:#6C757D">${esc(d.data)}</span> — ${esc(proj)} <strong style="color:#9e91c8">+${d.quantidade}</strong></li>`;
   }).join('') + (extra > 0
     ? `<li style="color:#6C757D;list-style:none;margin-top:4px">… e mais ${extra} entrega(s)</li>`
     : '');
@@ -777,7 +784,7 @@ function populateGruposMensal(grupos) {
 
 // ─── View Toggle (Mensal / Anual) ───────────────────────────────────────────────
 let _currentView = 'anual';
-let _selectedMonth = null;
+let _selectedMonths = [];
 
 const MESES_NOME = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -802,49 +809,54 @@ function populateMonthButtons() {
   const mesesComDados = _data.meses_com_dados || [];
   const anosComDados = _data.anos_com_dados || [];
   
-  // Popula anos
+  const selectedAno = anoSelect.value;
+  
   anoSelect.innerHTML = '<option value="">Selecione...</option>';
   anosComDados.forEach(ano => {
     const opt = document.createElement('option');
     opt.value = opt.textContent = ano;
+    if (ano === selectedAno) opt.selected = true;
     anoSelect.appendChild(opt);
   });
   
-  // Se só tiver o ano atual, exibe apenas ele
   if (anosComDados.length === 1) {
     anoSelect.value = anosComDados[0];
     anoSelect.disabled = true;
   }
   
-  // Gera botões de meses
   container.innerHTML = '';
   MESES_NOME.forEach((nome, idx) => {
     const mes = String(idx + 1).padStart(2, '0');
     const mesAno = `${anoSelect.value || new Date().getFullYear()}-${mes}`;
     const temDados = mesesComDados.some(m => m.startsWith(mesAno.substring(0, 4)) && m.endsWith(mes));
+    const isSelected = _selectedMonths.includes(mes);
     
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'month-btn' + (temDados ? '' : ' disabled');
+    btn.className = 'month-btn' + (temDados ? '' : ' disabled') + (isSelected ? ' active' : '');
     btn.disabled = !temDados;
     btn.textContent = nome;
     btn.dataset.mes = mes;
-    btn.onclick = () => selectMonth(btn, mes);
+    btn.onclick = () => toggleMonth(btn, mes);
     container.appendChild(btn);
   });
 }
 
-function selectMonth(btn, mes) {
-  document.querySelectorAll('.month-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  _selectedMonth = mes;
+function toggleMonth(btn, mes) {
+  if (_selectedMonths.includes(mes)) {
+    _selectedMonths = _selectedMonths.filter(m => m !== mes);
+    btn.classList.remove('active');
+  } else {
+    _selectedMonths.push(mes);
+    btn.classList.add('active');
+  }
   update();
 }
 
 function getFiltersMensal() {
   const ano = document.getElementById('f-ano').value;
   const grupo = document.getElementById('f-grupo-mensal').value;
-  return { ano, mes: _selectedMonth, grupo };
+  return { ano, meses: _selectedMonths, grupo };
 }
 
 // ─── Debug mode check ────────────────────────────────────────────────────────────
@@ -865,8 +877,10 @@ const debouncedUpdate = debounce(update, 200);
 ['f-ini','f-fim'].forEach(id =>
   document.getElementById(id).addEventListener('change', debouncedUpdate)
 );
-document.getElementById('f-grupo').addEventListener('change', update);
-document.getElementById('f-grupo-mensal').addEventListener('change', update);
+document.getElementById('f-grupo').addEventListener('change', () => update());
+document.getElementById('f-grupo-mensal').addEventListener('change', () => {
+  if (_currentView === 'mensal') update();
+});
 document.getElementById('f-ano').addEventListener('change', () => {
   populateMonthButtons();
   update();
@@ -889,37 +903,41 @@ update = function() {
 function updateMensal() {
   const f = getFiltersMensal();
   const ano = f.ano;
-  const mes = f.mes;
+  const meses = f.meses;
   const grupo = f.grupo;
   
   let ent = _data.entregas;
   if (ano) {
     ent = ent.filter(e => e.data && e.data.startsWith(ano));
   }
-  if (mes) {
-    ent = ent.filter(e => e.mes_ano === `${ano}-${mes}`);
+  if (meses && meses.length > 0) {
+    ent = ent.filter(e => meses.some(m => e.mes_ano === `${ano}-${m}`));
   }
   if (grupo) {
     ent = ent.filter(e => e.grupo === grupo);
   }
   
   let escopo = grupo ? _data.escopo.filter(e => e.grupo === grupo) : _data.escopo;
-  escopo = escopo.map(e => ({
-    ...e,
-    previsto_acumulado: e.previsto_acumulado / 12,
-  }));
-  const escopoR = computeRealizado(escopo, ent, ent);
   
-  const totalPrev = escopoR.reduce((s, e) => s + e.previsto_acumulado, 0);
+  const numMeses = meses.length > 0 ? meses.length : 1;
+  const divider = 12 / numMeses;
+  
+  let escopoCalc = escopo.map(e => ({
+    ...e,
+    previsto_acumulado: e.previsto_acumulado / divider,
+  }));
+  const escopoR = computeRealizado(escopoCalc, ent, ent);
+  
+  const totalPrev = numMeses > 0 ? escopo.reduce((s, e) => s + (e.qtd_ano || 0), 0) / divider : escopo.reduce((s, e) => s + (e.qtd_ano || 0), 0);
   const totalReal = escopoR.reduce((s, e) => s + e.realizado_ano, 0);
-  const saldo = _data.kpis.saldo_escopo;
+  const saldo = Math.round(totalPrev - totalReal);
   const tempo = _data.kpis.meses_decorridos;
   const pct = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
   
   renderKpis(saldo, totalReal, pct, tempo);
-  renderChartEscopo(escopoR, true);
+  renderChartEscopo(escopoR, true, divider);
   renderChartMensal(ent);
-  renderEscopoTable(escopoR, !!mes);
+  renderEscopoTable(escopoR, meses.length > 0);
   renderHistTable(ent);
   checkUnmapped(ent);
 }
