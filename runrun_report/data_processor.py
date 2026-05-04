@@ -136,6 +136,14 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
     rows = []
     ignored_count = 0
     
+    # Buscamos os comentários em lote usando a nova fila centralizada
+    print(f"Enfileirando busca de comentários para {len(gestao_tasks)} tarefas...")
+    task_ids = [t["id"] for t in gestao_tasks]
+    start = time.time()
+    all_comments = api_client.get_comments_batch(task_ids)
+    duration = int((time.time() - start) * 1000)
+    log_api_request("comments_batch", {"task_count": len(task_ids)}, "success", duration, sum(len(c) for c in all_comments.values()))
+    
     for task in gestao_tasks:
         task_tags = task.get("task_tags") or []
         if isinstance(task_tags, str):
@@ -151,11 +159,7 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
 
         task_id = task["id"]
         
-        # Log da requisição de comentários
-        start = time.time()
-        comments = api_client.get_comments(task_id)
-        duration = int((time.time() - start) * 1000)
-        log_api_request(f"comments/task_{task_id}", {}, "success", duration, len(comments))
+        comments = all_comments.get(task_id, [])
 
         for comment in comments:
             data_str = to_brasilia_time(comment.get("created_at") or "")
@@ -311,13 +315,25 @@ def sync_data() -> dict:
     Executa sincronização completa dos dados da API.
     Retorna dict com status e informações da sincronização.
     """
+    import queue_manager
     from dotenv import load_dotenv
     load_dotenv()
+    
+    # Adquire lock distribuído para evitar múltiplas execuções
+    if not queue_manager.acquire_lock("sync_lock", expires_in_sec=600):
+        return {
+            "status": "error",
+            "error": "Sincronização já em andamento por outro processo/usuário.",
+            "message": "Uma sincronização já está rodando. Aguarde a conclusão."
+        }
     
     sync_id = database.log_sync_start("full_sync")
     start_time = time.time()
     
     try:
+        # Limpa fila de execuções anteriores para evitar métricas antigas no dashboard e retries infinitos
+        queue_manager.clear_queue()
+        
         # Carrega escopo do Excel
         print("Carregando escopo do Excel...")
         escopo = load_escopo()
@@ -332,6 +348,7 @@ def sync_data() -> dict:
         records_count = len(entregas)
         
         database.log_sync_complete(sync_id, records_count, "success")
+        queue_manager.release_lock("sync_lock")
         
         return {
             "status": "success",
@@ -344,6 +361,7 @@ def sync_data() -> dict:
     except Exception as e:
         duration = time.time() - start_time
         database.log_sync_complete(sync_id, 0, "error", str(e))
+        queue_manager.release_lock("sync_lock")
         
         return {
             "status": "error",

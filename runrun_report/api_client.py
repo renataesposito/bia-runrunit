@@ -1,8 +1,8 @@
 import os
-import time
 import requests
 from dotenv import load_dotenv
 from config import API_BASE_URL, DATA_INICIO
+import queue_manager
 
 load_dotenv()
 
@@ -12,38 +12,47 @@ _HEADERS = {
     "Content-Type": "application/json",
 }
 
-_REQUEST_INTERVAL = 0.7  # ~85 req/min, abaixo do limite de 100
+# Inicia o worker da fila ao carregar o módulo
+queue_manager.start_worker(_HEADERS)
 
 FETCH_ALL_TASKS = os.getenv("FETCH_ALL_TASKS", "false").lower() == "true"
 
 
-def _get(endpoint: str, params: dict = None) -> list | dict:
-    url = f"{API_BASE_URL}/{endpoint}"
-    resp = requests.get(url, headers=_HEADERS, params=params, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+def _get(endpoint: str, params: dict = None, priority: int = 3) -> list | dict:
+    """Submete a requisição à fila persistente e aguarda o resultado."""
+    job_id = queue_manager.enqueue(endpoint, params, priority)
+    
+    # Aguarda o job finalizar (pode demorar devido ao rate limiting)
+    results = queue_manager.wait_for_jobs([job_id])
+    job_result = results.get(job_id)
+    
+    if job_result and job_result["status"] == "completed":
+        return job_result["result"]
+    elif job_result and job_result["status"] == "error":
+        raise Exception(f"Erro na requisição da fila: {job_result['error_log']}")
+    
+    raise Exception("Timeout aguardando processamento da fila")
 
 
-def _get_paginated(endpoint: str, params: dict = None) -> list:
+def _get_paginated(endpoint: str, params: dict = None, priority: int = 3) -> list:
     params = params or {}
     params["limit"] = 100
     results = []
     page = 1
     while True:
         params["page"] = page
-        data = _get(endpoint, params)
+        data = _get(endpoint, params, priority=priority)
         if not data:
             break
         results.extend(data if isinstance(data, list) else [data])
         if len(data) < 100:
             break
         page += 1
-        time.sleep(_REQUEST_INTERVAL)
     return results
 
 
 def get_client_id(client_name: str) -> int | None:
-    clients = _get_paginated("clients")
+    clients = _get_paginated("clients", priority=1)
     for c in clients:
         if client_name.lower() in c.get("name", "").lower():
             return c["id"]
@@ -51,18 +60,14 @@ def get_client_id(client_name: str) -> int | None:
 
 
 def get_gestao_tasks(client_id: int) -> list:
-    """Retorna todas as tarefas 'Gestão de Atendimento' do cliente (abertas e fechadas).
-
-    Se FETCH_ALL_TASKS=true, retorna TODAS as tarefas do cliente sem filtro de título,
-    útil para debug e verificação de tarefas fora do padrão 'Gestão de Atendimento'.
-    """
+    """Retorna tarefas com prioridade 2"""
     if FETCH_ALL_TASKS:
-        open_tasks   = _get_paginated("tasks", {"client_id": client_id})
-        closed_tasks = _get_paginated("tasks", {"client_id": client_id, "is_closed": "true"})
+        open_tasks   = _get_paginated("tasks", {"client_id": client_id}, priority=2)
+        closed_tasks = _get_paginated("tasks", {"client_id": client_id, "is_closed": "true"}, priority=2)
         all_tasks = open_tasks + closed_tasks
     else:
-        open_tasks   = _get_paginated("tasks", {"client_id": client_id})
-        closed_tasks = _get_paginated("tasks", {"client_id": client_id, "is_closed": "true"})
+        open_tasks   = _get_paginated("tasks", {"client_id": client_id}, priority=2)
+        closed_tasks = _get_paginated("tasks", {"client_id": client_id, "is_closed": "true"}, priority=2)
         all_tasks = open_tasks + closed_tasks
 
     unique_tasks = {t["id"]: t for t in all_tasks}.values()
@@ -77,6 +82,36 @@ def get_gestao_tasks(client_id: int) -> list:
 
 
 def get_comments(task_id: int) -> list:
-    """Retorna comentários humanos (não sistema) de uma tarefa."""
-    comments = _get_paginated("comments", {"task_id": task_id})
+    """Função legada para compatibilidade. Use get_comments_batch preferencialmente."""
+    comments = _get_paginated("comments", {"task_id": task_id}, priority=3)
     return [c for c in comments if not c.get("is_system_message", False)]
+
+
+def get_comments_batch(task_ids: list[int]) -> dict:
+    """
+    Enfileira a busca de comentários para múltiplas tarefas de uma vez.
+    Retorna um dicionário {task_id: [comments]}
+    """
+    # Enfileira todos
+    job_map = {}
+    for tid in task_ids:
+        # Nota: assumimos que comentários geralmente vêm em < 100 por tarefa,
+        # para evitar complexidade de paginação em batch.
+        jid = queue_manager.enqueue("comments", {"task_id": tid, "limit": 100}, priority=3)
+        job_map[jid] = tid
+        
+    # Aguarda todos
+    results = queue_manager.wait_for_jobs(list(job_map.keys()))
+    
+    final_data = {}
+    for jid, tid in job_map.items():
+        res = results.get(jid)
+        if res and res["status"] == "completed" and res["result"] is not None:
+            comments = res["result"]
+            final_data[tid] = [c for c in comments if not c.get("is_system_message", False)]
+        elif res and res["status"] == "error":
+            raise Exception(f"Falha definitiva ao buscar comentários da tarefa {tid}: {res.get('error_log')}")
+        else:
+            final_data[tid] = []
+            
+    return final_data

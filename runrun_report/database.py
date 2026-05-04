@@ -66,6 +66,45 @@ def init_database():
         )
     """)
 
+    # Fila da API (Rate Limiting)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS api_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            endpoint TEXT NOT NULL,
+            params TEXT,
+            priority INTEGER DEFAULT 3,
+            status TEXT DEFAULT 'pending',
+            attempts INTEGER DEFAULT 0,
+            next_attempt_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            processed_at TIMESTAMP,
+            error_log TEXT,
+            result TEXT
+        )
+    """)
+
+    # Lock Distribuído
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS system_locks (
+            lock_key TEXT PRIMARY KEY,
+            locked_at TIMESTAMP,
+            locked_by TEXT,
+            expires_at TIMESTAMP
+        )
+    """)
+
+    # Métricas da API
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS api_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            endpoint TEXT,
+            status_code INTEGER,
+            duration_ms INTEGER,
+            success INTEGER
+        )
+    """)
+
     # Tabela de debug log
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS debug_log (

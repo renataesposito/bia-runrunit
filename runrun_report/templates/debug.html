@@ -115,6 +115,56 @@
     </div>
   </div>
 
+  <!-- Painel de Monitoramento da Fila (API) -->
+  <div class="card panel mb-3">
+    <div class="card-body">
+      <p class="sec-title mb-2">Monitoramento da Fila da API (Rate Limit: 30 req/min)</p>
+      
+      <div id="alert-queue-large" class="alert alert-danger py-2 mb-3" style="display:none;">
+        <strong>⚠ Alerta:</strong> A fila ultrapassou 100 itens pendentes!
+      </div>
+      
+      <div class="row g-3 mb-2 text-center">
+        <div class="col-md-2">
+          <div class="p-3 border rounded bg-light">
+            <div class="text-muted small fw-bold">Reqs / Minuto</div>
+            <div id="metric-reqs-min" class="fs-4 fw-bold">—</div>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <div class="p-3 border rounded bg-light">
+            <div class="text-muted small fw-bold">Taxa Sucesso</div>
+            <div id="metric-success-rate" class="fs-4 fw-bold">—</div>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <div class="p-3 border rounded bg-light">
+            <div class="text-muted small fw-bold">Tempo Médio</div>
+            <div id="metric-avg-time" class="fs-4 fw-bold">—</div>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <div class="p-3 border rounded bg-light">
+            <div class="text-muted small fw-bold text-warning">Pendente</div>
+            <div id="queue-pending" class="fs-4 fw-bold text-warning">—</div>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <div class="p-3 border rounded bg-light">
+            <div class="text-muted small fw-bold text-info">Processando</div>
+            <div id="queue-processing" class="fs-4 fw-bold text-info">—</div>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <div class="p-3 border rounded bg-light">
+            <div class="text-muted small fw-bold text-danger">Erros (Retries)</div>
+            <div id="queue-errors" class="fs-4 fw-bold text-danger">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Tabela de Logs de Requisições -->
   <div class="card panel mb-3">
     <div class="card-body">
@@ -173,7 +223,38 @@ async function init() {
   await loadStatus();
   await loadLogs();
   await loadIgnored();
+  await loadQueueData();
   document.getElementById('loading').style.display = 'none';
+  
+  // Atualiza os dados da fila a cada 3 segundos
+  setInterval(loadQueueData, 3000);
+}
+
+async function loadQueueData() {
+  try {
+    const [resStatus, resMetrics] = await Promise.all([
+      fetch('/api/queue/status'),
+      fetch('/api/queue/metrics')
+    ]);
+    const status = await resStatus.json();
+    const metrics = await resMetrics.json();
+    
+    document.getElementById('queue-pending').textContent = status.pending;
+    document.getElementById('queue-processing').textContent = status.processing;
+    document.getElementById('queue-errors').textContent = status.errors;
+    
+    document.getElementById('metric-reqs-min').textContent = metrics.reqs_per_minute;
+    document.getElementById('metric-success-rate').textContent = metrics.success_rate_pct + '%';
+    document.getElementById('metric-avg-time').textContent = metrics.avg_duration_ms + ' ms';
+    
+    if (status.pending > 100) {
+      document.getElementById('alert-queue-large').style.display = 'block';
+    } else {
+      document.getElementById('alert-queue-large').style.display = 'none';
+    }
+  } catch (err) {
+    console.error('Erro ao carregar dados da fila:', err);
+  }
 }
 
 async function loadStatus() {

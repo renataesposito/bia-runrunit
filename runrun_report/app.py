@@ -41,6 +41,19 @@ def _load_data_from_db():
     return True
 
 
+import threading
+
+def _async_initial_sync():
+    """Roda a sincronização inicial em background."""
+    print("Primeira execução - realizando carga completa da API em background...")
+    try:
+        result = data_processor.sync_data()
+        print(f"Carga inicial concluída: {result}")
+        # Recarrega os dados em memória após finalizar
+        _load_data_from_db()
+    except Exception as e:
+        print(f"Erro na carga inicial em background: {e}")
+
 def _initial_data_load():
     """Executa carga inicial dos dados (bootstrap)."""
     global _escopo, _entregas, _escopo_real, _kpis
@@ -49,23 +62,25 @@ def _initial_data_load():
     database.init_database()
     
     # Verifica se precisa executar carga inicial
-    if database.is_database_empty():
-        print("Primeira execução - realizando carga completa da API...")
+    is_empty = database.is_database_empty()
+    
+    if is_empty:
+        print("Banco vazio. Inicializando com dados temporários do Excel...")
         try:
-            result = data_processor.sync_data()
-            print(f"Carga inicial concluída: {result}")
-        except Exception as e:
-            print(f"Erro na carga inicial: {e}")
-            # Se falhar, tenta carregar do Excel apenas
-            print("Tentando carregar apenas escopo do Excel...")
+            # Tenta carregar pelo menos o escopo do Excel para a UI não quebrar
             _escopo = data_processor.load_escopo()
             database.save_escopo(_escopo)
             _entregas = pd.DataFrame(columns=["task_id","projeto","grupo","hashtag","scope_slug","quantidade","data","mes_ano","mapeado"])
             database.save_entregas(_entregas)
+            
+            # Dispara a sincronização real pesada em background
+            threading.Thread(target=_async_initial_sync, daemon=True).start()
+        except Exception as e:
+            print(f"Erro ao carregar Excel temporário: {e}")
     else:
         print("Banco já existe - carregando dados existentes...")
     
-    # Carrega dados para memória
+    # Carrega dados para memória (pode ser os temporários se acabou de inicializar)
     _load_data_from_db()
     
     if _escopo is None or _escopo.empty:
@@ -115,12 +130,23 @@ def _filter(ini: str, fim: str, grupo: str) -> tuple[pd.DataFrame, pd.DataFrame]
     return esc, ent
 
 
+import queue_manager
+
 # ==================== Rotas ====================
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
+@app.route("/api/queue/status")
+def api_queue_status():
+    """Retorna o status da fila de processamento."""
+    return jsonify(queue_manager.get_queue_status())
+
+@app.route("/api/queue/metrics")
+def api_queue_metrics():
+    """Retorna métricas da API para o dashboard."""
+    return jsonify(queue_manager.get_queue_metrics())
 
 @app.route("/debug")
 def debug_page():

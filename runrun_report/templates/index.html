@@ -145,7 +145,12 @@
       <button id="btn-view-anual" class="active" onclick="setView('anual')">Anual</button>
       <button id="btn-view-mensal" onclick="setView('mensal')">Mensal</button>
     </div>
-    <button id="btn-debug" class="btn-debug" style="display:none" onclick="window.location.href='/debug'">⚙ Debug</button>
+    <div id="sync-status" class="sync-status d-flex align-items-center" style="margin-left: 15px; font-size: 11px; color: #aaa; gap: 10px;">
+      <span id="sync-badge" class="badge bg-secondary">Atualizado</span>
+      <span id="queue-badge" class="badge bg-dark" style="display:none;">Fila: 0</span>
+      <span id="last-update">Última atualização: —</span>
+    </div>
+    <button id="btn-debug" class="btn-debug" style="display:none; margin-left: 10px;" onclick="window.location.href='/debug'">⚙ Debug</button>
   </div>
   <p id="header-sub">Escopo: YESH HUB  |  A partir de 01/03/2026</p>
 </header>
@@ -859,7 +864,7 @@ function getFiltersMensal() {
   return { ano, meses: _selectedMonths, grupo };
 }
 
-// ─── Debug mode check ────────────────────────────────────────────────────────────
+// ─── Debug mode check e Fila ────────────────────────────────────────────────────────────
 async function checkDebugMode() {
   try {
     const res = await fetch('/api/debug/status');
@@ -867,10 +872,43 @@ async function checkDebugMode() {
     if (data.enabled) {
       document.getElementById('btn-debug').style.display = 'block';
     }
+    if (data.last_sync && data.last_sync.completed_at) {
+      const dt = new Date(data.last_sync.completed_at);
+      document.getElementById('last-update').textContent = 'Última atualização: ' + dt.toLocaleString('pt-BR');
+    }
   } catch (err) {
     // Debug endpoint não disponível
   }
 }
+
+async function pollQueueStatus() {
+  try {
+    const res = await fetch('/api/queue/status');
+    const q = await res.json();
+    
+    const pending = q.pending + q.processing;
+    const badge = document.getElementById('sync-badge');
+    const queueBadge = document.getElementById('queue-badge');
+    
+    if (pending > 0) {
+      badge.className = 'badge bg-warning text-dark';
+      badge.textContent = 'Sincronizando...';
+      queueBadge.style.display = 'inline-block';
+      queueBadge.textContent = 'Fila pendente: ' + pending + ' itens';
+    } else {
+      badge.className = 'badge bg-secondary';
+      badge.textContent = 'Atualizado';
+      queueBadge.style.display = 'none';
+      checkDebugMode(); // Atualiza o last_sync
+    }
+  } catch (err) {
+    console.error('Erro ao buscar status da fila', err);
+  }
+}
+
+// Inicia o polling
+setInterval(pollQueueStatus, 5000);
+pollQueueStatus();
 
 // ─── eventos ──────────────────────────────────────────────────────────────────
 const debouncedUpdate = debounce(update, 200);
