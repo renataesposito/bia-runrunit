@@ -200,17 +200,20 @@ def api_export():
 def api_sync():
     """Endpoint para sincronização manual (apenas em modo debug)."""
     if not data_processor.is_debug_mode():
-        return jsonify({"error": "Modo debug desabilitado"}), 403
+        return jsonify({"status": "error", "error": "Modo debug desabilitado"}), 403
     
     try:
         result = data_processor.sync_data()
         
         # Recarrega dados em memória após sincronização
-        if result["status"] == "success":
+        if result.get("status") == "success":
             _load_data_from_db()
-        
+            
+        # O data_processor.sync_data() já retorna um dict que podemos converter para JSON
         return jsonify(result)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "error": str(e)}), 500
 
 

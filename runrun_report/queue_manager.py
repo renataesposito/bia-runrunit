@@ -230,12 +230,16 @@ def process_next_job(headers: dict) -> bool:
     """
     conn = database.get_connection()
     
+    # Inicia transação exclusiva para evitar race condition na verificação do rate limit e update do job
+    cursor = conn.cursor()
+    cursor.execute("BEGIN EXCLUSIVE TRANSACTION")
+    
     # Verifica rate limit antes de iniciar
     if not _check_rate_limit(conn):
+        conn.commit()  # Libera o lock de transação
         conn.close()
         return False
         
-    cursor = conn.cursor()
     now = datetime.now().isoformat()
     
     # Busca o job pendente de maior prioridade (priority 1 > priority 3)
@@ -250,6 +254,7 @@ def process_next_job(headers: dict) -> bool:
     
     job = cursor.fetchone()
     if not job:
+        conn.commit()  # Libera o lock de transação
         conn.close()
         return False
         
@@ -260,7 +265,20 @@ def process_next_job(headers: dict) -> bool:
     
     # Marca como processing
     cursor.execute("UPDATE api_queue SET status = 'processing' WHERE id = ?", (job_id,))
-    conn.commit()
+    
+    # Registra uma métrica de placeholder ("processing") para que a contagem do rate limit 
+    # seja incrementada IMEDIATAMENTE e conte para os próximos workers, 
+    # impedindo que ultrapassem o limite enquanto a requisição HTTP acontece.
+    cursor.execute(
+        """INSERT INTO api_metrics (endpoint, status_code, duration_ms, success)
+           VALUES (?, 0, 0, 0)""",
+        (endpoint,)
+    )
+    metric_id = cursor.lastrowid
+    
+    conn.commit() # Commita o status 'processing' e a métrica, liberando a transação EXCLUSIVE
+    
+    # ----- FIM DA SEÇÃO CRÍTICA (RACE CONDITION) -----
     
     url = f"{API_BASE_URL}/{endpoint}"
     start_time = time.time()
@@ -268,23 +286,40 @@ def process_next_job(headers: dict) -> bool:
     success = False
     error_msg = ""
     result_data = None
+    resp = None
     
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=30)
         status_code = resp.status_code
         resp.raise_for_status()
-        result_data = resp.json()
-        success = True
+        
+        # Check if the response is actually JSON before parsing
+        content_type = resp.headers.get('Content-Type', '')
+        if 'application/json' in content_type:
+            result_data = resp.json()
+            success = True
+        else:
+            error_msg = f"Unexpected content type: {content_type}. Expected application/json."
+            success = False
+            
     except requests.exceptions.RequestException as e:
         if resp is not None:
             status_code = resp.status_code
         error_msg = str(e)
         success = False
+    except json.JSONDecodeError as e:
+        error_msg = f"Failed to parse JSON response: {e}"
+        success = False
         
     duration_ms = int((time.time() - start_time) * 1000)
     
-    # Log da métrica (conta pro rate limit)
-    _log_metric(conn, endpoint, status_code, duration_ms, success)
+    # Atualiza a métrica placeholder com os dados reais
+    cursor.execute(
+        """UPDATE api_metrics 
+           SET status_code = ?, duration_ms = ?, success = ?
+           WHERE id = ?""",
+        (status_code, duration_ms, 1 if success else 0, metric_id)
+    )
     
     # Atualiza o job
     if success:
