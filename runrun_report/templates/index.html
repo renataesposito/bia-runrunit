@@ -168,9 +168,9 @@
   <div class="row g-3 mb-3">
     <div class="col-md-3">
       <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-        <p class="kpi-title">Saldo de Escopo</p>
+        <p class="kpi-title">Tarefas Pendentes no Mês</p>
         <div class="kpi-value" id="kpi-saldo" style="color:#1A1A1A">—</div>
-        <small class="kpi-sub">itens ainda disponíveis</small>
+        <small class="kpi-sub">itens restantes no período</small>
       </div></div>
     </div>
     <div class="col-md-3">
@@ -189,9 +189,9 @@
     </div>
     <div class="col-md-3">
       <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-        <p class="kpi-title">Tempo de Contrato</p>
+        <p class="kpi-title">Tarefas por Mês</p>
         <div class="kpi-value" id="kpi-tempo" style="color:#1A1A1A">—</div>
-        <small class="kpi-sub" id="kpi-tempo-sub">decorrido / 12 meses</small>
+        <small class="kpi-sub" id="kpi-tempo-sub">previsto no período</small>
       </div></div>
     </div>
   </div>
@@ -255,8 +255,8 @@
       </div>
     </div>
     <div class="col-md-4">
-      <div class="chart-wrap" style="height:100%">
-        <div id="g-mensal" style="height:100%;min-height:300px"></div>
+      <div class="chart-wrap">
+        <div id="g-mensal"></div>
       </div>
     </div>
   </div>
@@ -272,9 +272,9 @@
               <th class="sortable" onclick="sortEscopo('grupo')">Grupos <span id="srt-grupo"></span></th>
               <th class="sortable" onclick="sortEscopo('entregavel')">Entregáveis <span id="srt-entregavel"></span></th>
               <th id="th-mes-prev" class="text-center sortable" onclick="sortEscopo('qtd_mes')" style="display:none">Previsto Qtd/Mês <span id="srt-qtd_mes"></span></th>
-              <th class="text-center sortable" onclick="sortEscopo('qtd_ano')">Previsto Qtd/Ano <span id="srt-qtd_ano"></span></th>
+              <th id="th-ano-prev" class="text-center sortable" onclick="sortEscopo('qtd_ano')">Previsto Qtd/Ano <span id="srt-qtd_ano"></span></th>
               <th id="th-mes-real" class="text-center sortable" onclick="sortEscopo('realizado_mes')" style="display:none">Realizado Qtd/Mês <span id="srt-realizado_mes"></span></th>
-              <th class="text-center sortable" onclick="sortEscopo('realizado_ano')">Realizado Qtd/Ano <span id="srt-realizado_ano"></span></th>
+              <th id="th-ano-real" class="text-center sortable" onclick="sortEscopo('realizado_ano')">Realizado Qtd/Ano <span id="srt-realizado_ano"></span></th>
               <th class="sortable" style="min-width:140px" onclick="sortEscopo('progresso')">Progresso <span id="srt-progresso"></span></th>
             </tr>
           </thead>
@@ -331,6 +331,7 @@ const COLORS = [BRAND_LIME, BRAND_DARK, ORANGE, '#9C27B0', '#00BCD4', '#FF5722',
 
 // ─── estado global ────────────────────────────────────────────────────────────
 let _data = null;
+let _lastChartHeight = 400; // Altura sincronizada entre gráficos
 
 // sort — escopo
 let _sortCol     = null;
@@ -442,25 +443,31 @@ function update() {
   const escopoR  = computeRealizado(escopo, ent_ano, ent_mes);
 
   const totalPrev = escopoR.reduce((s, e) => s + (e.qtd_ano || 0), 0);
-  const totalReal = escopoR.reduce((s, e) => s + e.realizado_ano, 0);
+  
+  // Regra: Não recorrentes (<12/ano) não somam excedente no KPI de realizado
+  const totalReal = escopoR.reduce((s, e) => {
+    const isRecorrente = e.qtd_ano >= 12;
+    const valorRealizado = isRecorrente ? e.realizado_ano : Math.min(e.realizado_ano, e.qtd_ano);
+    return s + valorRealizado;
+  }, 0);
+
   const saldo = totalPrev - totalReal;
-  const tempo = _data.kpis.meses_decorridos;
   const pct = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
 
-  renderKpis(saldo, totalReal, pct, tempo);
+  renderKpis(saldo, totalReal, pct, totalPrev);
   renderChartEscopo(escopoR);
   renderChartMensal(ent_mes);
-  renderEscopoTable(escopoR, hasDate);
+  renderEscopoTable(escopoR, false, false);
   renderHistTable(ent_mes);
   checkUnmapped(ent_mes);
 }
 
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
-function renderKpis(saldo, real, pct, tempo) {
+function renderKpis(saldo, real, pct, tarefasPorMes) {
   setKpi('kpi-saldo',   Math.round(saldo), saldo >= 0 ? BRAND_DARK : RED);
   setKpi('kpi-realizado', Math.round(real),  real > 0 ? BRAND_LIME : BRAND_DARK);
   setKpi('kpi-pct',       pct+'%', pct >= 80 ? GREEN : (pct >= 50 ? ORANGE : RED));
-  setKpi('kpi-tempo',     Math.round(tempo) + 'm', BRAND_DARK);
+  setKpi('kpi-tempo',     Math.round(tarefasPorMes), BRAND_DARK);
 }
 function setKpi(id, val, color) {
   const el = document.getElementById(id);
@@ -470,25 +477,79 @@ function setKpi(id, val, color) {
 
 // ─── gráfico: previsto acumulado vs realizado ─────────────────────────────────
 function renderChartEscopo(escopoR, isMensal = false, dividerOverride = null) {
-  const height = Math.max(320, escopoR.length * 28 + 80);
-  const labels = escopoR.map(e => e.entregavel);
+  // Separação e Agrupamento: Recorrentes primeiro, Não Recorrentes depois
+  const recorrentes = escopoR.filter(e => e.qtd_ano >= 12);
+  const naoRecorrentes = escopoR.filter(e => e.qtd_ano < 12);
+  
+  // Adiciona um separador visual se ambos existirem
+  let escopoSorted = [...recorrentes];
+  if (recorrentes.length > 0 && naoRecorrentes.length > 0) {
+    // Adicionamos um item dummy para servir de espaço/label separador
+    escopoSorted.push({ entregavel: '─── NÃO RECORRENTES ───', isSeparator: true, qtd_ano: 0, realizado_ano: 0, realizado_mes: 0 });
+  }
+  escopoSorted = escopoSorted.concat(naoRecorrentes);
+
+  const height = Math.max(400, escopoSorted.length * 28 + 80);
+  _lastChartHeight = height; // Sincroniza altura
+  const labels = escopoSorted.map(e => e.entregavel);
 
   const divider = dividerOverride !== null ? dividerOverride : (isMensal ? 12 : 1);
-  const qtdAnoAdjusted = escopoR.map(e => e.qtd_ano / divider);
-  const realizadoSeg = escopoR.map((e, i) => Math.min(e.realizado_ano, qtdAnoAdjusted[i]));
-  const saldo      = escopoR.map((e, i) => Math.max(qtdAnoAdjusted[i] - e.realizado_ano, 0));
-  const overflow   = escopoR.map((e, i) => Math.max(e.realizado_ano - qtdAnoAdjusted[i], 0));
+  const toSize = (v) => v > 0 ? Math.max(1, Math.ceil(v)) : 0;
 
-  const customdata = escopoR.map((e, i) => [
-    Math.round(e.realizado_ano),
-    Math.round(qtdAnoAdjusted[i]),
-    Math.round(saldo[i]),
-    Math.round(overflow[i]),
-    e.entregavel,
-  ]);
+  // Planejado: Recorrentes seguem o divisor (mensal/anual), Não Recorrentes são sempre Anuais
+  const planejadoParaDesenho = escopoSorted.map(e => {
+    if (e.isSeparator) return 0;
+    const isRecorrente = e.qtd_ano >= 12;
+    return isRecorrente ? toSize(e.qtd_ano / divider) : e.qtd_ano;
+  });
+  
+  // Regra de Realizado: 
+  // - Recorrentes: limitados ao planejado na barra principal (excesso vai para overflow)
+  // - Não Recorrentes: mostram o total realizado na barra colorida, sem trava de planejado
+  const realizadoSeg = escopoSorted.map((e, i) => {
+    if (e.isSeparator) return 0;
+    const isRecorrente = e.qtd_ano >= 12;
+    return isRecorrente ? Math.min(e.realizado_ano, planejadoParaDesenho[i]) : e.realizado_ano;
+  });
 
-  const hoverTplSaldo    = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Saldo: %{customdata[2]}<extra></extra>';
-  const hoverTplOverflow = '<b>%{customdata[4]}</b><br>Realizado: %{customdata[0]}<br>Planejado: %{customdata[1]}<br>Acima do previsto: +%{customdata[3]}<extra></extra>';
+  const saldo = escopoSorted.map((e, i) => {
+    if (e.isSeparator) return 0;
+    return toSize(Math.max(planejadoParaDesenho[i] - e.realizado_ano, 0));
+  });
+
+  const overflow = escopoSorted.map((e, i) => {
+    if (e.isSeparator) return 0;
+    const isRecorrente = e.qtd_ano >= 12;
+    // Apenas recorrentes mostram overflow (barra vermelha)
+    return isRecorrente ? toSize(Math.max(e.realizado_ano - planejadoParaDesenho[i], 0)) : 0;
+  });
+
+  const customdata = escopoSorted.map((e, i) => {
+    if (e.isSeparator) return [0,0,0,0,'','', ''];
+    const isRecorrente = e.qtd_ano >= 12;
+    const real = Math.round(e.realizado_ano);
+    const plan = Math.round(planejadoParaDesenho[i]);
+    const sld = Math.round(saldo[i]);
+    const ovr = Math.round(overflow[i]);
+    const ovrText = (isRecorrente && ovr > 0) ? `<br>Acima do previsto: +${ovr}` : '';
+    
+    return [
+      real,
+      plan,
+      sld,
+      ovr,
+      e.entregavel,
+      isRecorrente ? 'Recorrente' : 'Não Recorrente',
+      ovrText
+    ];
+  });
+
+  const hoverTpl = '<b>%{customdata[4]}</b> (%{customdata[5]})<br>' +
+                   'Realizado: %{customdata[0]}<br>' +
+                   'Planejado: %{customdata[1]}<br>' +
+                   'Saldo: %{customdata[2]}' +
+                   '%{customdata[6]}' +
+                   '<extra></extra>';
 
   const chartTitle = isMensal 
     ? 'Previsto Mensal vs Realizado por Entregável'
@@ -496,32 +557,43 @@ function renderChartEscopo(escopoR, isMensal = false, dividerOverride = null) {
 
   const planLabel = isMensal ? '/Mês' : '/Ano';
 
+  const recorrenteColors = escopoSorted.map(e => e.isSeparator ? 'rgba(0,0,0,0)' : (e.qtd_ano >= 12 ? BRAND_LIME : 'rgba(0,0,0,0)'));
+  const naoRecorrenteColors = escopoSorted.map(e => e.isSeparator ? 'rgba(0,0,0,0)' : (e.qtd_ano < 12 ? '#0D6EFD' : 'rgba(0,0,0,0)'));
+
   Plotly.react('g-escopo', [
-    { name: 'Realizado', y: labels, x: realizadoSeg, type: 'bar', orientation: 'h',
-      marker: { color: BRAND_LIME }, customdata, hovertemplate: hoverTplSaldo },
+    { name: 'Realizado (Recorrente)', y: labels, x: escopoSorted.map((e, i) => e.qtd_ano >= 12 ? realizadoSeg[i] : 0), type: 'bar', orientation: 'h',
+      marker: { color: BRAND_LIME }, customdata, hovertemplate: hoverTpl, showlegend: true },
+    { name: 'Ação Não Recorrente', y: labels, x: escopoSorted.map((e, i) => e.qtd_ano < 12 ? realizadoSeg[i] : 0), type: 'bar', orientation: 'h',
+      marker: { color: '#0D6EFD' }, customdata, hovertemplate: hoverTpl, showlegend: true },
     { name: 'Saldo', y: labels, x: saldo, type: 'bar', orientation: 'h',
-      marker: { color: BRAND_DARK }, customdata, hovertemplate: hoverTplSaldo },
+      marker: { color: BRAND_DARK }, customdata, hovertemplate: hoverTpl },
     { name: 'Acima do previsto', y: labels, x: overflow, type: 'bar', orientation: 'h',
-      marker: { color: RED }, customdata, hovertemplate: hoverTplOverflow },
+      marker: { color: RED }, customdata, hovertemplate: hoverTpl },
   ], {
     barmode: 'stack',
+    hovermode: 'closest',
     title:   { text: chartTitle, font: { size: 13, family: 'Inter' } },
     height,
     margin:  { l: 260, r: 120, t: 40, b: 40 },
     xaxis:   { title: 'Quantidade' },
-    yaxis:   { autorange: 'reversed' },
+    yaxis:   { autorange: 'reversed', tickfont: { size: 11 } },
     legend:  { orientation: 'h', y: -0.08 },
-    annotations: escopoR.map((e, i) => ({
-      x: Math.max(qtdAnoAdjusted[i], e.realizado_ano),
-      y: e.entregavel,
-      text: `${planLabel} ${Math.round(qtdAnoAdjusted[i])}`,
-      xanchor: 'left',
-      yanchor: 'middle',
-      showarrow: false,
-      font: { size: 10, color: '#6C757D', family: 'Inter' },
-      xref: 'x',
-      yref: 'y',
-    })),
+    annotations: escopoSorted.map((e, i) => {
+      if (e.isSeparator) return null;
+      const isRecorrente = e.qtd_ano >= 12;
+      const label = isRecorrente ? planLabel : '/Ano';
+      return {
+        x: Math.max(planejadoParaDesenho[i], realizadoSeg[i]),
+        y: e.entregavel,
+        text: `${label} ${Math.round(planejadoParaDesenho[i])}`,
+        xanchor: 'left',
+        yanchor: 'middle',
+        showarrow: false,
+        font: { size: 10, color: '#6C757D', family: 'Inter' },
+        xref: 'x',
+        yref: 'y',
+      };
+    }).filter(a => a !== null),
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     font: { family: 'Inter' },
   }, { responsive: true, displayModeBar: false });
@@ -541,17 +613,23 @@ function renderChartMensal(entregas) {
   const total = entries.reduce((s, v) => s + v[1], 0);
   
   if (entries.length === 0) {
-    Plotly.react('g-mensal', [], { title: { text: 'Entregas por Mês', font: { size: 13, family: 'Inter' } } });
+    Plotly.react('g-mensal', [], { 
+      title: { text: 'Entregas por Mês', font: { size: 13, family: 'Inter' } },
+      height: _lastChartHeight 
+    });
     return;
   }
   
   if (entries.length > 10) {
     const top10 = entries.slice(0, 10);
     const others = entries.slice(10).reduce((s, v) => s + v[1], 0);
-    entries = [...top10, ['Others', others]];
+    entries = [...top10, ['Outros', others]];
   }
   
-  const labels = entries.map(e => e[0]);
+  const labels = entries.map(e => {
+    const pct = ((e[1] / total) * 100).toFixed(1);
+    return `${e[0]} (${pct}%)`;
+  });
   const values = entries.map(e => Math.round(e[1]));
   const colors = entries.map((_, i) => COLORS[i % COLORS.length]);
   
@@ -560,49 +638,75 @@ function renderChartMensal(entregas) {
     labels,
     values,
     marker: { colors },
-    textinfo: 'label+percent',
-    hovertemplate: '<b>%{label}</b><br>Quantidade: %{value:.0f}<br>(%{percent})<extra></extra>',
+    textinfo: 'none', // Remove texto de dentro do gráfico
+    hovertemplate: '<b>%{label}</b><br>Quantidade: %{value:.0f}<extra></extra>',
     sort: false,
   };
   
-  const el = document.getElementById('g-mensal');
-  const h = Math.max(400, el.parentElement.clientHeight || 400);
   Plotly.react('g-mensal', [trace], {
     title: { text: `Volume Total: ${Math.round(total)} entregas`, font: { size: 13, family: 'Inter' } },
-    height: h,
-    margin: { l: 40, r: 40, t: 50, b: 100 },
-    legend: { orientation: 'h', y: -0.15, x: 0.5, xanchor: 'center' },
+    height: _lastChartHeight, // Altura fixa sincronizada
+    margin: { l: 20, r: 20, t: 60, b: 150 },
+    legend: { 
+      orientation: 'v', 
+      y: -0.1, 
+      x: 0, 
+      xanchor: 'left',
+      yanchor: 'top',
+      font: { size: 9 },
+      itemwidth: 20
+    },
     paper_bgcolor: 'white',
     font: { family: 'Inter' },
   }, { responsive: true, displayModeBar: false });
 }
 
 // ─── tabela: escopo com progresso ─────────────────────────────────────────────
-function renderEscopoTable(escopoR, hasDate) {
+function renderEscopoTable(escopoR, isMensalView, hasMonthsSelected) {
   _lastEscopoR = escopoR;
-  _lastHasDate = hasDate;
+  _lastHasDate = isMensalView && hasMonthsSelected;
   _lastSorted  = getSortedEscopo(escopoR);
 
-  document.getElementById('th-mes-prev').style.display = hasDate ? '' : 'none';
-  document.getElementById('th-mes-real').style.display = hasDate ? '' : 'none';
-
   document.getElementById('t-escopo-body').innerHTML = _lastSorted.map((e, i) => {
-    const pct    = e.qtd_ano > 0 ? Math.min(100, Math.round(100 * e.realizado_ano / e.qtd_ano)) : 0;
-    const barClr = pct >= 80 ? BRAND_LIME : (pct >= 50 ? ORANGE : (pct > 0 ? RED : GRAY));
-    const txtClr = pct >= 80 ? GREEN      : (pct >= 50 ? ORANGE : (pct > 0 ? RED : GRAY));
+    let pct, previsto, realizado;
+    const isRecorrente = e.qtd_ano >= 12;
+
+    if (isMensalView && hasMonthsSelected) {
+      previsto = e.qtd_mes > 0 ? e.qtd_mes : (e.qtd_ano / 12);
+      realizado = e.realizado_mes;
+    } else {
+      previsto = e.qtd_ano;
+      realizado = e.realizado_ano;
+    }
+
+    if (isRecorrente) {
+       pct = previsto > 0 ? Math.min(100, Math.round(100 * realizado / previsto)) : 0;
+     } else {
+       pct = previsto > 0 ? Math.min(100, Math.round(100 * realizado / previsto)) : 0;
+     }
+
+    let barClr;
+    if (!isRecorrente) {
+      barClr = '#0D6EFD';
+    } else {
+      barClr = pct >= 80 ? BRAND_LIME : (pct >= 50 ? ORANGE : (pct > 0 ? RED : GRAY));
+    }
+    const txtClr = barClr;
     const hasDetail = e.entregas_detail?.length > 0;
     const tdExtra   = hasDetail
       ? `data-row="${i}" style="color:${txtClr};cursor:help"`
       : `style="color:${txtClr}"`;
-    const tdMesPrev = hasDate ? `<td class="text-center">${e.qtd_mes > 0 ? Math.round(e.qtd_mes) : '—'}</td>` : '';
-    const tdMesReal = hasDate ? `<td class="text-center fw-bold">${Math.round(e.realizado_mes)}</td>` : '';
+    const tdMesPrev = isMensalView ? `<td class="text-center">${e.qtd_mes > 0 ? Math.round(e.qtd_mes) : '—'}</td>` : '';
+    const tdMesReal = isMensalView ? `<td class="text-center fw-bold">${Math.round(e.realizado_mes)}</td>` : '';
+    const tdAnoPrev = !isMensalView ? `<td class="text-center">${e.qtd_ano > 0 ? Math.round(e.qtd_ano) : '—'}</td>` : '';
+    const tdAnoReal = !isMensalView ? `<td class="text-center fw-bold" ${tdExtra}>${Math.round(e.realizado_ano)}</td>` : '';
     return `<tr>
       <td>${esc(e.grupo)}</td>
       <td>${esc(e.entregavel)}</td>
       ${tdMesPrev}
-      <td class="text-center">${e.qtd_ano > 0 ? Math.round(e.qtd_ano) : '—'}</td>
+      ${tdAnoPrev}
       ${tdMesReal}
-      <td class="text-center fw-bold" ${tdExtra}>${Math.round(e.realizado_ano)}</td>
+      ${tdAnoReal}
       <td>
         <div class="progress mb-1" role="progressbar"
              aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
@@ -710,7 +814,7 @@ function sortEscopo(col) {
   if (_sortCol === col) _sortDir *= -1;
   else { _sortCol = col; _sortDir = 1; }
   updateSortIndicators('escopo');
-  if (_lastEscopoR) renderEscopoTable(_lastEscopoR, _lastHasDate);
+  if (_lastEscopoR) renderEscopoTable(_lastEscopoR, _currentView === 'mensal', _selectedMonths.length > 0);
 }
 
 function getSortedEscopo(escopoR) {
@@ -805,6 +909,7 @@ function setView(view) {
     populateMonthButtons();
   }
   
+  updateTableColumns(view === 'mensal', _selectedMonths.length > 0);
   update();
 }
 
@@ -862,6 +967,25 @@ function getFiltersMensal() {
   const ano = document.getElementById('f-ano').value;
   const grupo = document.getElementById('f-grupo-mensal').value;
   return { ano, meses: _selectedMonths, grupo };
+}
+
+function updateTableColumns(isMensalView, hasMonthsSelected) {
+  const thMesPrev = document.getElementById('th-mes-prev');
+  const thMesReal = document.getElementById('th-mes-real');
+  const thAnoPrev = document.getElementById('th-ano-prev');
+  const thAnoReal = document.getElementById('th-ano-real');
+
+  if (isMensalView) {
+    thMesPrev.style.display = '';
+    thMesReal.style.display = '';
+    thAnoPrev.style.display = 'none';
+    thAnoReal.style.display = 'none';
+  } else {
+    thMesPrev.style.display = 'none';
+    thMesReal.style.display = 'none';
+    thAnoPrev.style.display = '';
+    thAnoReal.style.display = '';
+  }
 }
 
 // ─── Debug mode check e Fila ────────────────────────────────────────────────────────────
@@ -932,6 +1056,7 @@ document.getElementById('btn-exp').addEventListener('click', () => {
 const _originalUpdate = update;
 update = function() {
   if (_currentView === 'anual') {
+    updateTableColumns(false, false);
     _originalUpdate();
   } else {
     updateMensal();
@@ -939,6 +1064,9 @@ update = function() {
 };
 
 function updateMensal() {
+  const hasMonthsSelected = _selectedMonths.length > 0;
+  updateTableColumns(true, hasMonthsSelected);
+
   const f = getFiltersMensal();
   const ano = f.ano;
   const meses = f.meses;
@@ -957,25 +1085,51 @@ function updateMensal() {
   
   let escopo = grupo ? _data.escopo.filter(e => e.grupo === grupo) : _data.escopo;
   
-  const numMeses = meses.length > 0 ? meses.length : 1;
-  const divider = 12 / numMeses;
+  let escopoR, totalPrev, totalReal, saldo, pct;
   
-  let escopoCalc = escopo.map(e => ({
-    ...e,
-    previsto_acumulado: e.previsto_acumulado / divider,
-  }));
-  const escopoR = computeRealizado(escopoCalc, ent, ent);
+  if (meses.length === 0) {
+    escopoR = computeRealizado(escopo, ent, ent);
+    totalPrev = escopoR.reduce((s, e) => s + (e.qtd_ano || 0), 0);
+    
+    // Regra: Não recorrentes (<12/ano) não somam excedente no KPI
+    totalReal = escopoR.reduce((s, e) => {
+      const isRecorrente = e.qtd_ano >= 12;
+      return s + (isRecorrente ? e.realizado_ano : Math.min(e.realizado_ano, e.qtd_ano));
+    }, 0);
+
+    saldo = totalPrev - totalReal;
+    pct = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
+    
+    renderKpis(saldo, totalReal, pct, totalPrev);
+    renderChartEscopo(escopoR, false, 1);
+  } else {
+    const numMeses = meses.length;
+    const divider = 12 / numMeses;
+    
+    let escopoCalc = escopo.map(e => ({
+      ...e,
+      previsto_acumulado: e.previsto_acumulado / divider,
+    }));
+    escopoR = computeRealizado(escopoCalc, ent, ent);
+    
+    totalPrev = escopo.reduce((s, e) => s + (e.qtd_ano || 0), 0) / divider;
+
+    // Regra: Não recorrentes (<12/ano) não somam excedente no KPI
+    totalReal = escopoR.reduce((s, e) => {
+      const isRecorrente = e.qtd_ano >= 12;
+      const previstoPeriodo = e.qtd_ano / divider;
+      return s + (isRecorrente ? e.realizado_ano : Math.min(e.realizado_ano, previstoPeriodo));
+    }, 0);
+
+    saldo = Math.round(totalPrev - totalReal);
+    pct = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
+    
+    renderKpis(saldo, totalReal, pct, totalPrev);
+    renderChartEscopo(escopoR, true, divider);
+  }
   
-  const totalPrev = numMeses > 0 ? escopo.reduce((s, e) => s + (e.qtd_ano || 0), 0) / divider : escopo.reduce((s, e) => s + (e.qtd_ano || 0), 0);
-  const totalReal = escopoR.reduce((s, e) => s + e.realizado_ano, 0);
-  const saldo = Math.round(totalPrev - totalReal);
-  const tempo = _data.kpis.meses_decorridos;
-  const pct = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
-  
-  renderKpis(saldo, totalReal, pct, tempo);
-  renderChartEscopo(escopoR, true, divider);
   renderChartMensal(ent);
-  renderEscopoTable(escopoR, meses.length > 0);
+  renderEscopoTable(escopoR, true, meses.length > 0);
   renderHistTable(ent);
   checkUnmapped(ent);
 }
