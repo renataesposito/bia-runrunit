@@ -283,6 +283,10 @@ if __name__ == "__main__":
     # Carrega dados iniciais
     _initial_data_load()
     
+    # Inicia o worker da fila (agora seguro após o banco inicializar)
+    import api_client
+    api_client.init_worker()
+    
     # Inicia scheduler
     _start_scheduler()
     

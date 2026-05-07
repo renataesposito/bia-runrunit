@@ -12,8 +12,9 @@ _HEADERS = {
     "Content-Type": "application/json",
 }
 
-# Inicia o worker da fila ao carregar o módulo
-queue_manager.start_worker(_HEADERS)
+def init_worker():
+    """Inicializa o worker da fila."""
+    queue_manager.start_worker(_HEADERS)
 
 FETCH_ALL_TASKS = os.getenv("FETCH_ALL_TASKS", "false").lower() == "true"
 

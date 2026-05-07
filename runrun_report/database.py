@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import json
 from datetime import datetime
 from typing import Optional
 import pandas as pd
@@ -13,7 +14,7 @@ DB_PATH = os.getenv("SQLITE_DB_PATH", "data/nuclea.db")
 def get_connection() -> sqlite3.Connection:
     """Retorna conexão com o banco de dados."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -311,10 +312,18 @@ def log_debug_request(endpoint: str, params: dict, status: str, duration_ms: int
     """Registra uma requisição no log de debug."""
     conn = get_connection()
     cursor = conn.cursor()
+    
+    # Certifica-se de que se o valor for numérico ou string, tentaremos convertê-lo em JSON
+    # Mas se for dicionário, ele faz o dump sem problemas
+    try:
+        params_str = json.dumps(params, ensure_ascii=False)
+    except (TypeError, ValueError):
+        params_str = str(params)
+        
     cursor.execute(
         """INSERT INTO debug_log (endpoint, params, status, duration_ms, records_count, ignored_reason)
            VALUES (?, ?, ?, ?, ?, ?)""",
-        (endpoint, str(params), status, duration_ms, records_count, ignored_reason)
+        (endpoint, params_str, status, duration_ms, records_count, ignored_reason)
     )
     conn.commit()
     conn.close()

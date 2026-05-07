@@ -5,7 +5,7 @@ import time
 from datetime import date, datetime, timezone, timedelta
 from dotenv import load_dotenv
 import pandas as pd
-from config import CLIENT_NAME, DATA_INICIO
+from config import CLIENT_NAME, DATA_INICIO, ALLOWED_DATE_OVERRIDE_EMAILS
 import api_client
 import database
 
@@ -165,6 +165,34 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
             data_str = to_brasilia_time(comment.get("created_at") or "")
             text = comment.get("text") or ""
             
+            # Remove entidades HTML comuns de espaço antes do regex para não falhar
+            clean_text = text.replace("&nbsp;", " ")
+            
+            # Tenta extrair o email ou outro identificador válido (a API Runrun.it às vezes retorna no author_id/user_id)
+            user_data = comment.get("user") or {}
+            user_email = (comment.get("user_email") or user_data.get("email") or "").strip().lower()
+            
+            # Se a API não retornar o e-mail de forma óbvia, no payload parece ter author_id e user_id. 
+            # O sistema pode ser adaptado depois se precisarmos bater o author_id.
+            
+            # Avalia se deve sobrescrever a data (filtro de email temporariamente desativado, 
+            # ou ative verificando: `if not ALLOWED_DATE_OVERRIDE_EMAILS or user_email in ALLOWED_DATE_OVERRIDE_EMAILS:`)
+            
+            date_match = re.search(r'(?:^|\s+)(\d{2}/\d{2}/\d{4})(?:\s*)$', clean_text)
+            if date_match:
+                # Opcionalmente reativar a checagem:
+                # if ALLOWED_DATE_OVERRIDE_EMAILS and user_email not in ALLOWED_DATE_OVERRIDE_EMAILS:
+                #     pass # Não sobrescreve
+                # else:
+                date_str_br = date_match.group(1)
+                try:
+                    day, month, year = date_str_br.split('/')
+                    data_str = f"{year}-{month}-{day}"
+                    # Limpa a data do texto para que o parse da hashtag não confunda a hashtag caso ela esteja colada
+                    text = clean_text[:date_match.start()].strip()
+                except ValueError:
+                    pass
+            
             hashtags_found = _parse_hashtags(text)
             
             if not hashtags_found:
@@ -175,7 +203,7 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
                         add_ignored_item("task", str(task_id), f"Tarefa '{task_title}' tem tags mapeadas mas comentário sem quantidade")
                 else:
                     if DEBUG_MODE:
-                        add_ignored_item("comment", str(comment.get("id")), "Comentário sem hashtag de entrega")
+                        add_ignored_item("comment", str(comment.get("id")), "Comentário sem hashtag de entrega", comment_text=text)
                 ignored_count += 1
                 continue
 
@@ -187,7 +215,7 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
                 
                 if not scope_slug:
                     if DEBUG_MODE:
-                        add_ignored_item("hashtag", comment_slug, f"Hashtag '#{comment_slug}' não mapeada ao escopo")
+                        add_ignored_item("hashtag", comment_slug, f"Hashtag '#{comment_slug}' não mapeada ao escopo", comment_text=text)
                     ignored_count += 1
                 
                 rows.append({
@@ -264,7 +292,7 @@ def log_api_request(endpoint: str, params: dict, status: str, duration_ms: int, 
         database.log_debug_request(endpoint, params, status, duration_ms, records_count, ignored_reason)
 
 
-def add_ignored_item(item_type: str, item_id: str, reason: str):
+def add_ignored_item(item_type: str, item_id: str, reason: str, comment_text: str = None):
     """Adiciona um item ignorado à lista."""
     global _ignored_items
     
@@ -272,13 +300,18 @@ def add_ignored_item(item_type: str, item_id: str, reason: str):
         "type": item_type,
         "id": item_id,
         "reason": reason,
+        "comment_text": comment_text,
     }
     _ignored_items.append(ignored_entry)
     
     if DEBUG_MODE:
+        params = {"id": item_id}
+        if comment_text:
+            params["comment_text"] = comment_text
+            
         database.log_debug_request(
             endpoint=f"ignored_{item_type}",
-            params={"id": item_id},
+            params=params,
             status="ignored",
             duration_ms=0,
             records_count=0,

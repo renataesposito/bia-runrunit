@@ -198,6 +198,7 @@
               <th>Timestamp</th>
               <th>Tipo</th>
               <th>ID/Identificador</th>
+              <th>Comentário Original</th>
               <th>Motivo</th>
             </tr>
           </thead>
@@ -335,7 +336,7 @@ async function loadIgnored() {
 function renderIgnored() {
   const tbody = document.getElementById('t-ignored-body');
   if (!_ignored.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Nenhum item ignorado</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">Nenhum item ignorado</td></tr>';
     return;
   }
   
@@ -343,11 +344,38 @@ function renderIgnored() {
     const timestamp = item.timestamp ? new Date(item.timestamp).toLocaleString('pt-BR') : '-';
     const type = item.endpoint ? item.endpoint.replace('ignored_', '') : '-';
     
+    let commentText = '-';
+    let idOrParams = item.params || '-';
+    
+    if (item.params) {
+      try {
+        // Tenta fazer o parse do JSON dos parâmetros
+        let parsed = JSON.parse(item.params);
+        if (parsed.comment_text) {
+          commentText = parsed.comment_text;
+        }
+        idOrParams = parsed.id || item.params;
+      } catch(e) {
+        // Se falhar (log legado usando str(params) em Python), tenta contornar
+        try {
+          let safeJson = item.params.replace(/'/g, '"');
+          let parsed = JSON.parse(safeJson);
+          if (parsed.comment_text) {
+            commentText = parsed.comment_text;
+          }
+          idOrParams = parsed.id || item.params;
+        } catch(e2) {
+          // Mantém o comportamento original
+        }
+      }
+    }
+    
     return `
       <tr>
         <td>${timestamp}</td>
         <td>${type}</td>
-        <td>${item.params || '-'}</td>
+        <td>${idOrParams}</td>
+        <td>${commentText}</td>
         <td>${item.ignored_reason || '-'}</td>
       </tr>
     `;
@@ -361,7 +389,16 @@ async function syncNow() {
   
   try {
     const res = await fetch('/api/sync', { method: 'POST' });
-    const data = await res.json();
+    
+    // Log da resposta crua para diagnóstico se não for JSON
+    let textResponse = await res.text();
+    let data;
+    try {
+      data = JSON.parse(textResponse);
+    } catch(parseErr) {
+      console.error("Resposta não é JSON:", textResponse);
+      throw new Error("O servidor não retornou um JSON válido. Resposta: " + textResponse.substring(0, 100) + "...");
+    }
     
     if (data.status === 'success') {
       alert(`Sincronização concluída!\nRegistros: ${data.records_fetched}\nDuração: ${data.duration_seconds}s`);

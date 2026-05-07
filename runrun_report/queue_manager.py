@@ -230,129 +230,137 @@ def process_next_job(headers: dict) -> bool:
     """
     conn = database.get_connection()
     
-    # Inicia transação exclusiva para evitar race condition na verificação do rate limit e update do job
-    cursor = conn.cursor()
-    cursor.execute("BEGIN EXCLUSIVE TRANSACTION")
-    
-    # Verifica rate limit antes de iniciar
-    if not _check_rate_limit(conn):
-        conn.commit()  # Libera o lock de transação
-        conn.close()
-        return False
+    try:
+        # Inicia transação exclusiva para evitar race condition na verificação do rate limit e update do job
+        cursor = conn.cursor()
+        cursor.execute("BEGIN EXCLUSIVE TRANSACTION")
         
-    now = datetime.now().isoformat()
-    
-    # Busca o job pendente de maior prioridade (priority 1 > priority 3)
-    # Considera next_attempt_at para os retries
-    cursor.execute("""
-        SELECT * FROM api_queue 
-        WHERE status = 'pending' 
-          AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-        ORDER BY priority ASC, created_at ASC
-        LIMIT 1
-    """, (now,))
-    
-    job = cursor.fetchone()
-    if not job:
-        conn.commit()  # Libera o lock de transação
-        conn.close()
-        return False
+        # Verifica rate limit antes de iniciar
+        if not _check_rate_limit(conn):
+            conn.commit()  # Libera o lock de transação
+            conn.close()
+            return False
+            
+        now = datetime.now().isoformat()
         
-    job_id = job["id"]
-    endpoint = job["endpoint"]
-    params = json.loads(job["params"])
-    attempts = job["attempts"]
-    
-    # Marca como processing
-    cursor.execute("UPDATE api_queue SET status = 'processing' WHERE id = ?", (job_id,))
-    
-    # Registra uma métrica de placeholder ("processing") para que a contagem do rate limit 
-    # seja incrementada IMEDIATAMENTE e conte para os próximos workers, 
-    # impedindo que ultrapassem o limite enquanto a requisição HTTP acontece.
-    cursor.execute(
-        """INSERT INTO api_metrics (endpoint, status_code, duration_ms, success)
-           VALUES (?, 0, 0, 0)""",
-        (endpoint,)
-    )
-    metric_id = cursor.lastrowid
-    
-    conn.commit() # Commita o status 'processing' e a métrica, liberando a transação EXCLUSIVE
-    
+        # Busca o job pendente de maior prioridade (priority 1 > priority 3)
+        # Considera next_attempt_at para os retries
+        cursor.execute("""
+            SELECT * FROM api_queue 
+            WHERE status = 'pending' 
+              AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+            ORDER BY priority ASC, created_at ASC
+            LIMIT 1
+        """, (now,))
+        
+        job = cursor.fetchone()
+        if not job:
+            conn.commit()  # Libera o lock de transação
+            conn.close()
+            return False
+            
+        job_id = job["id"]
+        endpoint = job["endpoint"]
+        params = json.loads(job["params"])
+        attempts = job["attempts"]
+        
+        # Marca como processing
+        cursor.execute("UPDATE api_queue SET status = 'processing' WHERE id = ?", (job_id,))
+        
+        # Registra uma métrica de placeholder ("processing") para que a contagem do rate limit 
+        # seja incrementada IMEDIATAMENTE e conte para os próximos workers, 
+        # impedindo que ultrapassem o limite enquanto a requisição HTTP acontece.
+        cursor.execute(
+            """INSERT INTO api_metrics (endpoint, status_code, duration_ms, success)
+               VALUES (?, 0, 0, 0)""",
+            (endpoint,)
+        )
+        metric_id = cursor.lastrowid
+        
+        conn.commit() # Commita o status 'processing' e a métrica, liberando a transação EXCLUSIVE
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        raise e
+        
     # ----- FIM DA SEÇÃO CRÍTICA (RACE CONDITION) -----
     
-    url = f"{API_BASE_URL}/{endpoint}"
-    start_time = time.time()
-    status_code = 0
-    success = False
-    error_msg = ""
-    result_data = None
-    resp = None
-    
     try:
-        resp = requests.get(url, headers=headers, params=params, timeout=30)
-        status_code = resp.status_code
-        resp.raise_for_status()
+        url = f"{API_BASE_URL}/{endpoint}"
+        start_time = time.time()
+        status_code = 0
+        success = False
+        error_msg = ""
+        result_data = None
+        resp = None
         
-        # Check if the response is actually JSON before parsing
-        content_type = resp.headers.get('Content-Type', '')
-        if 'application/json' in content_type:
-            result_data = resp.json()
-            success = True
-        else:
-            error_msg = f"Unexpected content type: {content_type}. Expected application/json."
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=30)
+            status_code = resp.status_code
+            resp.raise_for_status()
+            
+            # Check if the response is actually JSON before parsing
+            content_type = resp.headers.get('Content-Type', '')
+            if 'application/json' in content_type:
+                result_data = resp.json()
+                success = True
+            else:
+                error_msg = f"Unexpected content type: {content_type}. Expected application/json."
+                success = False
+                
+        except requests.exceptions.RequestException as e:
+            if resp is not None:
+                status_code = resp.status_code
+            error_msg = str(e)
+            success = False
+        except json.JSONDecodeError as e:
+            error_msg = f"Failed to parse JSON response: {e}"
             success = False
             
-    except requests.exceptions.RequestException as e:
-        if resp is not None:
-            status_code = resp.status_code
-        error_msg = str(e)
-        success = False
-    except json.JSONDecodeError as e:
-        error_msg = f"Failed to parse JSON response: {e}"
-        success = False
+        duration_ms = int((time.time() - start_time) * 1000)
         
-    duration_ms = int((time.time() - start_time) * 1000)
-    
-    # Atualiza a métrica placeholder com os dados reais
-    cursor.execute(
-        """UPDATE api_metrics 
-           SET status_code = ?, duration_ms = ?, success = ?
-           WHERE id = ?""",
-        (status_code, duration_ms, 1 if success else 0, metric_id)
-    )
-    
-    # Atualiza o job
-    if success:
+        # Atualiza a métrica placeholder com os dados reais
         cursor.execute(
-            """UPDATE api_queue 
-               SET status = 'completed', processed_at = ?, result = ?
+            """UPDATE api_metrics 
+               SET status_code = ?, duration_ms = ?, success = ?
                WHERE id = ?""",
-            (datetime.now().isoformat(), json.dumps(result_data), job_id)
+            (status_code, duration_ms, 1 if success else 0, metric_id)
         )
-    else:
-        attempts += 1
-        if attempts >= MAX_RETRIES:
+        
+        # Atualiza o job
+        if success:
             cursor.execute(
                 """UPDATE api_queue 
-                   SET status = 'error', processed_at = ?, error_log = ?
+                   SET status = 'completed', processed_at = ?, result = ?
                    WHERE id = ?""",
-                (datetime.now().isoformat(), error_msg, job_id)
+                (datetime.now().isoformat(), json.dumps(result_data), job_id)
             )
         else:
-            # Configura retry
-            delay = RETRY_DELAYS[attempts - 1]
-            # Adaptive throttling: se for 429, backoff mais agressivo
-            if status_code == 429:
-                delay += 10
+            attempts += 1
+            if attempts >= MAX_RETRIES:
+                cursor.execute(
+                    """UPDATE api_queue 
+                       SET status = 'error', processed_at = ?, error_log = ?
+                       WHERE id = ?""",
+                    (datetime.now().isoformat(), error_msg, job_id)
+                )
+            else:
+                # Configura retry
+                delay = RETRY_DELAYS[attempts - 1]
+                # Adaptive throttling: se for 429, backoff mais agressivo
+                if status_code == 429:
+                    delay += 10
+                    
+                next_attempt = (datetime.now() + timedelta(seconds=delay)).isoformat()
+                cursor.execute(
+                    """UPDATE api_queue 
+                       SET status = 'pending', attempts = ?, next_attempt_at = ?, error_log = ?
+                       WHERE id = ?""",
+                    (attempts, next_attempt, error_msg, job_id)
+                )
                 
-            next_attempt = (datetime.now() + timedelta(seconds=delay)).isoformat()
-            cursor.execute(
-                """UPDATE api_queue 
-                   SET status = 'pending', attempts = ?, next_attempt_at = ?, error_log = ?
-                   WHERE id = ?""",
-                (attempts, next_attempt, error_msg, job_id)
-            )
-            
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
+        
     return True
