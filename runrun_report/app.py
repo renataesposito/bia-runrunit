@@ -2,7 +2,8 @@ import io
 import json
 import os
 from datetime import date
-from flask import Flask, render_template, jsonify, request, send_file
+from flask import Flask, render_template, jsonify, request, send_file, Response
+from functools import wraps
 from flask_cors import CORS
 from dotenv import load_dotenv
 import pandas as pd
@@ -132,6 +133,27 @@ def _filter(ini: str, fim: str, grupo: str) -> tuple[pd.DataFrame, pd.DataFrame]
 
 import queue_manager
 
+# ==================== Autenticação Debug ====================
+
+def check_auth(username, password):
+    """Verifica se o usuário e senha estão corretos."""
+    return password == 'nuclea123' # Senha básica conforme solicitado
+
+def authenticate():
+    """Retorna uma resposta 401 que solicita autenticação básica."""
+    return Response(
+    'Acesso restrito. Por favor, insira a senha.', 401,
+    {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
+
 # ==================== Rotas ====================
 
 @app.route("/")
@@ -149,10 +171,9 @@ def api_queue_metrics():
     return jsonify(queue_manager.get_queue_metrics())
 
 @app.route("/debug")
+@requires_auth
 def debug_page():
     """Página de debug."""
-    if not data_processor.is_debug_mode():
-        return "Modo debug desabilitado", 403
     return render_template("debug.html")
 
 
@@ -197,11 +218,9 @@ def api_export():
 
 
 @app.route("/api/sync", methods=["POST"])
+@requires_auth
 def api_sync():
-    """Endpoint para sincronização manual (apenas em modo debug)."""
-    if not data_processor.is_debug_mode():
-        return jsonify({"status": "error", "error": "Modo debug desabilitado"}), 403
-    
+    """Endpoint para sincronização manual."""
     try:
         result = data_processor.sync_data()
         
@@ -218,33 +237,27 @@ def api_sync():
 
 
 @app.route("/api/debug/logs")
+@requires_auth
 def api_debug_logs():
     """Retorna logs de debug."""
-    if not data_processor.is_debug_mode():
-        return jsonify({"error": "Modo debug desabilitado"}), 403
-    
     limit = request.args.get("limit", 100, type=int)
     logs = database.get_debug_logs(limit)
     return jsonify(logs)
 
 
 @app.route("/api/debug/ignored")
+@requires_auth
 def api_debug_ignored():
     """Retorna itens ignorados."""
-    if not data_processor.is_debug_mode():
-        return jsonify({"error": "Modo debug desabilitado"}), 403
-    
     limit = request.args.get("limit", 100, type=int)
     ignored = database.get_ignored_items(limit)
     return jsonify(ignored)
 
 
 @app.route("/api/debug/clear", methods=["POST"])
+@requires_auth
 def api_debug_clear():
     """Limpa logs de debug."""
-    if not data_processor.is_debug_mode():
-        return jsonify({"error": "Modo debug desabilitado"}), 403
-    
     database.clear_debug_logs()
     data_processor.clear_debug_data()
     return jsonify({"status": "success"})
@@ -253,9 +266,6 @@ def api_debug_clear():
 @app.route("/api/debug/status")
 def api_debug_status():
     """Retorna status do debug e última sincronização."""
-    if not data_processor.is_debug_mode():
-        return jsonify({"enabled": False})
-    
     last_sync = database.get_last_sync()
     return jsonify({
         "enabled": True,

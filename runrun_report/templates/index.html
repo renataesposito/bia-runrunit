@@ -39,13 +39,6 @@
     }
     .view-toggle button:hover:not(.active) { color:#fff; }
 
-    /* ── Debug button ── */
-    .btn-debug {
-      background:transparent; border:1px solid #555; color:#888;
-      padding:5px 12px; border-radius:4px; font-size:11px; cursor:pointer;
-    }
-    .btn-debug:hover { border-color:#888; color:#fff; }
-
     /* ── Month buttons ── */
     .month-buttons {
       display:flex; flex-wrap:wrap; gap:6px;
@@ -150,7 +143,6 @@
       <span id="queue-badge" class="badge bg-dark" style="display:none;">Fila: 0</span>
       <span id="last-update">Última atualização: —</span>
     </div>
-    <button id="btn-debug" class="btn-debug" style="display:none; margin-left: 10px;" onclick="window.location.href='/debug'">⚙ Debug</button>
   </div>
   <p id="header-sub">Escopo: YESH HUB  |  A partir de 01/03/2026</p>
 </header>
@@ -320,14 +312,23 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 <script>
-// ─── cores ────────────────────────────────────────────────────────────────────
+// #coresnuclea - Defina aqui as cores para o Top 5 + Outros do gráfico de pizza
+const CORES_PIZZA = [
+  '#9e91c8', // Cor 1
+  '#1A1A1A', // Cor 2
+  '#E8710A', // Cor 3
+  '#9C27B0', // Cor 4
+  '#00BCD4', // Cor 5
+  '#6C757D'  // Cor para "Outros"
+];
+
 const BRAND_DARK = '#1A1A1A';
 const BRAND_LIME = '#9e91c8';
 const GREEN      = '#9e91c8';
 const ORANGE     = '#E8710A';
 const RED        = '#DC3545';
 const GRAY       = '#6C757D';
-const COLORS = [BRAND_LIME, BRAND_DARK, ORANGE, '#9C27B0', '#00BCD4', '#FF5722', '#607D8B', '#795548'];
+const COLORS     = CORES_PIZZA;
 
 // ─── estado global ────────────────────────────────────────────────────────────
 let _data = null;
@@ -620,10 +621,10 @@ function renderChartMensal(entregas) {
     return;
   }
   
-  if (entries.length > 10) {
-    const top10 = entries.slice(0, 10);
-    const others = entries.slice(10).reduce((s, v) => s + v[1], 0);
-    entries = [...top10, ['Outros', others]];
+  if (entries.length > 5) {
+    const top5 = entries.slice(0, 5);
+    const others = entries.slice(5).reduce((s, v) => s + v[1], 0);
+    entries = [...top5, ['Outros', others]];
   }
   
   const labels = entries.map(e => {
@@ -631,7 +632,10 @@ function renderChartMensal(entregas) {
     return `${e[0]} (${pct}%)`;
   });
   const values = entries.map(e => Math.round(e[1]));
-  const colors = entries.map((_, i) => COLORS[i % COLORS.length]);
+  const colors = entries.map((e, i) => {
+    if (e[0] === 'Outros') return CORES_PIZZA[5] || '#6C757D';
+    return CORES_PIZZA[i % 5];
+  });
   
   const trace = {
     type: 'pie',
@@ -993,9 +997,6 @@ async function checkDebugMode() {
   try {
     const res = await fetch('/api/debug/status');
     const data = await res.json();
-    if (data.enabled) {
-      document.getElementById('btn-debug').style.display = 'block';
-    }
     if (data.last_sync && data.last_sync.completed_at) {
       const dt = new Date(data.last_sync.completed_at);
       document.getElementById('last-update').textContent = 'Última atualização: ' + dt.toLocaleString('pt-BR');

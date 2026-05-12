@@ -2,6 +2,7 @@ import re
 import os
 import unicodedata
 import time
+import difflib
 from datetime import date, datetime, timezone, timedelta
 from dotenv import load_dotenv
 import pandas as pd
@@ -15,8 +16,8 @@ EXCEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Escopo Nu
 TEMPO_CONTRATO_MESES = 12  # contrato anual: março a fevereiro
 ESCOPO_NOME = "YESH HUB"   # nome do escopo/contrato (usado no header)
 
-# Debug mode flag
-DEBUG_MODE = os.getenv("DEBUG_MODE_ENABLED", "false").lower() == "true"
+# Debug mode flag - Sempre ativo por padrão
+DEBUG_MODE = True
 
 # Timezone GMT-3 (Brasília)
 TZ_BRASIL = timezone(timedelta(hours=-3))
@@ -90,8 +91,9 @@ def _parse_hashtags(text: str) -> list[tuple[str, int]]:
 def _match_tag(tag_slug: str, grupo: str, escopo: pd.DataFrame) -> str | None:
     """
     Casa um slug de tag com um item do escopo (busca em todo o escopo, sem restrição de grupo).
-    Primeiro tenta match exato, depois verifica se o slug do entregável
-    é substring do slug da tag (para suportar prefixos como 'n_', 'ep_', etc.).
+    1. Tenta match exato.
+    2. Verifica se o slug do entregável é substring do slug da tag (prefixos).
+    3. Tenta match por similaridade de grafia (fuzzy) >= 92%.
     """
     # 1. Match exato
     exact = escopo[escopo["slug"] == tag_slug]
@@ -102,6 +104,40 @@ def _match_tag(tag_slug: str, grupo: str, escopo: pd.DataFrame) -> str | None:
     candidates = escopo[escopo["slug"].apply(lambda s: len(s) > 4 and s in tag_slug)]
     if len(candidates) == 1:
         return candidates.iloc[0]["slug"]
+
+    # 3. Tratamento de prefixos comuns (ex: n_, ep_)
+    # Remove prefixos conhecidos antes de calcular a similaridade para melhorar o match
+    clean_tag = tag_slug
+    for prefix in ['n_', 'ep_']:
+        if clean_tag.startswith(prefix):
+            clean_tag = clean_tag[len(prefix):]
+            break
+            
+    # Remove hífens para comparar apenas as letras
+    clean_tag_no_hyphen = clean_tag.replace('-', '')
+            
+    # 4. Match por similaridade de grafia (>= 92%)
+    best_match = None
+    best_ratio = 0.0
+    
+    for scope_slug in escopo["slug"].unique():
+        if not scope_slug:
+            continue
+            
+        clean_scope = scope_slug.replace('-', '')
+        
+        # Tenta a similaridade com a tag original e com a tag sem prefixo/hífen
+        ratio1 = difflib.SequenceMatcher(None, tag_slug, scope_slug).ratio()
+        ratio2 = difflib.SequenceMatcher(None, clean_tag_no_hyphen, clean_scope).ratio()
+        
+        ratio = max(ratio1, ratio2)
+        
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_match = scope_slug
+            
+    if best_ratio >= 0.92 and best_match:
+        return best_match
 
     return None
 
