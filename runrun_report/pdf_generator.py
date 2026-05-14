@@ -11,10 +11,10 @@ from reportlab.lib.units import inch
 from config import CLIENT_NAME
 import api_client
 
-def get_image_from_url(url, width=2*inch, height=2*inch):
+def get_image_from_url(url, width=2*inch, height=2*inch, headers=None):
     """Faz download de uma imagem a partir da URL de forma síncrona para não deixar buracos."""
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         img_data = io.BytesIO(response.content)
         # Tenta carregar a imagem com ReportLab
@@ -53,8 +53,10 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     if not tasks_alvo:
         raise ValueError(f"Nenhuma tarefa de gestão corresponde às entregas do mês {mes_ano}.")
 
-    # 3. Busca os comentários em lote para obter os anexos dos comentários
-    all_comments = api_client.get_comments_batch([t["id"] for t in tasks_alvo])
+    # 3. Busca os comentários e anexos detalhados em lote
+    task_ids_list = [t["id"] for t in tasks_alvo]
+    all_comments = api_client.get_comments_batch(task_ids_list)
+    all_task_attachments = api_client.get_task_attachments_batch(task_ids_list)
 
     # 4. Configuração do Documento PDF (Landscape)
     buffer = io.BytesIO()
@@ -230,14 +232,16 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         # Coleta anexos da task e dos comentários
         anexos = []
         
-        # Anexos da raiz da task
-        task_attachments = task.get("attachments", [])
+        # Documentos/Anexos da raiz da task (usando o payload detalhado ou o da listagem como fallback)
+        task_attachments = all_task_attachments.get(task["id"], [])
+        if not task_attachments:
+            task_attachments = task.get("attachments", [])
         anexos.extend(task_attachments)
         
-        # Anexos dos comentários
+        # Documentos/Anexos dos comentários
         comments = all_comments.get(task["id"], [])
         for c in comments:
-            c_attachments = c.get("attachments", [])
+            c_attachments = c.get("attachments", []) or c.get("documents", [])
             anexos.extend(c_attachments)
             
         # Remove duplicados baseados no ID do anexo
@@ -252,19 +256,28 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         if not anexos:
             story.append(Paragraph("Nenhum arquivo anexado nesta task.", normal_style))
         else:
-            # Para cada anexo, verifica se tem thumbnail.
-            # No Runrun.it, thumbnails costumam vir num dicionário 'thumbnails' dentro do anexo.
+            # Para cada anexo, verifica se tem thumbnail ou imagem válida
             for anexo in anexos:
-                file_name = anexo.get("name", "Arquivo sem nome")
-                thumbnails = anexo.get("thumbnails", {})
+                file_name = anexo.get("name") or anexo.get("file_name") or anexo.get("data_file_name") or "Arquivo sem nome"
                 
-                # Tenta pegar um thumbnail médio ou qualquer um disponível
                 thumb_url = None
-                if isinstance(thumbnails, dict) and thumbnails:
-                    thumb_url = thumbnails.get("medium") or thumbnails.get("small") or list(thumbnails.values())[0]
+                
+                # Se for um documento do tipo UploadedDocument e tiver ID, podemos tentar baixar
+                if "id" in anexo and "file_extension" in anexo:
+                    ext = str(anexo.get("file_extension", "")).lower()
+                    if ext in ["jpg", "jpeg", "png", "gif", "webp"]:
+                        # Endpoint direto para download do documento
+                        thumb_url = f"https://runrun.it/api/v1.0/documents/{anexo['id']}/download"
+                else:
+                    # Legado (caso venha no formato antigo de attachments)
+                    thumbnails = anexo.get("thumbnails", {})
+                    if isinstance(thumbnails, dict) and thumbnails:
+                        thumb_url = thumbnails.get("medium") or thumbnails.get("small") or list(thumbnails.values())[0]
                 
                 if thumb_url:
-                    img = get_image_from_url(thumb_url, width=2.5*inch, height=2.5*inch)
+                    # Passa os headers de autenticação, pois o endpoint de download exige
+                    headers = api_client._HEADERS if "runrun.it" in thumb_url else None
+                    img = get_image_from_url(thumb_url, width=2.5*inch, height=2.5*inch, headers=headers)
                     if img:
                         # Para alinhar melhor, colocamos numa mini-tabela ou simplesmente empilhados
                         # Aqui vamos adicionar a imagem e depois o nome centralizado abaixo

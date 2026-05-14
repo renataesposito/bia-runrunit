@@ -116,3 +116,30 @@ def get_comments_batch(task_ids: list[int]) -> dict:
             final_data[tid] = []
             
     return final_data
+
+
+def get_task_attachments_batch(task_ids: list[int]) -> dict:
+    """
+    Enfileira a busca de documentos (anexos) para múltiplas tarefas.
+    Retorna um dicionário {task_id: [documents]}
+    """
+    job_map = {}
+    for tid in task_ids:
+        # A API correta para anexos é /documents?task_id={id}
+        jid = queue_manager.enqueue("documents", {"task_id": tid, "limit": 100}, priority=3)
+        job_map[jid] = tid
+        
+    results = queue_manager.wait_for_jobs(list(job_map.keys()))
+    
+    final_data = {}
+    for jid, tid in job_map.items():
+        res = results.get(jid)
+        if res and res["status"] == "completed" and res["result"] is not None:
+            final_data[tid] = res["result"]
+        elif res and res["status"] == "error":
+            print(f"Erro ao buscar anexos da task {tid}: {res.get('error_log')}")
+            final_data[tid] = []
+        else:
+            final_data[tid] = []
+            
+    return final_data

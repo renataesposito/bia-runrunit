@@ -337,7 +337,11 @@ def process_next_job(headers: dict) -> bool:
             )
         else:
             attempts += 1
-            if attempts >= MAX_RETRIES:
+            # Não faz retry de erros de cliente (400 a 404), pois não vão mudar.
+            # Apenas 429 (Rate Limit) e 5xx devem sofrer retry.
+            should_retry = status_code == 429 or status_code >= 500 or status_code == 0
+            
+            if attempts >= MAX_RETRIES or not should_retry:
                 cursor.execute(
                     """UPDATE api_queue 
                        SET status = 'error', processed_at = ?, error_log = ?
