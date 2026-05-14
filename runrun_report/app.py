@@ -217,6 +217,29 @@ def api_export():
     )
 
 
+@app.route("/api/pdf-report")
+@requires_auth
+def api_pdf_report():
+    """Gera e retorna o relatório de status em PDF."""
+    mes_ano = request.args.get("mes_ano")
+    if not mes_ano:
+        return jsonify({"status": "error", "error": "Parâmetro mes_ano é obrigatório."}), 400
+        
+    try:
+        import pdf_generator
+        pdf_bytes = pdf_generator.gerar_pdf_status(mes_ano, _escopo, _entregas)
+        return send_file(
+            io.BytesIO(pdf_bytes),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=f"Relatorio_Status_Nuclea_{mes_ano.replace('/', '-')}.pdf"
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 @app.route("/api/sync", methods=["POST"])
 @requires_auth
 def api_sync():

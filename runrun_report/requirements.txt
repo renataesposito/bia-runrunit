@@ -5,3 +5,5 @@ flask-cors
 openpyxl
 python-dotenv
 apscheduler
+reportlab
+Pillow

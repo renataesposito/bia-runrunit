@@ -115,6 +115,26 @@
     </div>
   </div>
 
+  <!-- Relatório de Status em PDF -->
+  <div class="card panel mb-3">
+    <div class="card-body">
+      <p class="sec-title mb-2">Gerador de Relatório de Status (PDF)</p>
+      <div class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label text-muted small fw-bold mb-1">Selecione o Mês</label>
+          <select id="pdf-mes-select" class="form-select form-select-sm">
+            <option value="">Carregando meses...</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <button class="btn btn-primary btn-sm w-100 fw-bold" id="btn-gerar-pdf" onclick="gerarPDF()">
+            📄 Gerar Relatório PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Painel de Monitoramento da Fila (API) -->
   <div class="card panel mb-3">
     <div class="card-body">
@@ -225,10 +245,66 @@ async function init() {
   await loadLogs();
   await loadIgnored();
   await loadQueueData();
+  await loadMesesPdf();
   document.getElementById('loading').style.display = 'none';
   
   // Atualiza os dados da fila a cada 3 segundos
   setInterval(loadQueueData, 3000);
+}
+
+async function loadMesesPdf() {
+  try {
+    const res = await fetch('/api/meses-com-dados');
+    const meses = await res.json();
+    const select = document.getElementById('pdf-mes-select');
+    select.innerHTML = '<option value="">Selecione...</option>';
+    meses.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      select.appendChild(opt);
+    });
+  } catch (err) {
+    console.error('Erro ao carregar meses para PDF:', err);
+  }
+}
+
+async function gerarPDF() {
+  const mes = document.getElementById('pdf-mes-select').value;
+  if (!mes) {
+    alert('Por favor, selecione um mês.');
+    return;
+  }
+  
+  const btn = document.getElementById('btn-gerar-pdf');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Gerando PDF...';
+  
+  try {
+    const response = await fetch(`/api/pdf-report?mes_ano=${encodeURIComponent(mes)}`);
+    
+    if (!response.ok) {
+      const errData = await response.json();
+      throw new Error(errData.error || 'Erro desconhecido ao gerar PDF');
+    }
+    
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = `Relatorio_Status_Nuclea_${mes.replace('/', '-')}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    
+  } catch (err) {
+    alert('Erro ao gerar PDF: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '📄 Gerar Relatório PDF';
+  }
 }
 
 async function loadQueueData() {
