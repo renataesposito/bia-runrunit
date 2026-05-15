@@ -1,24 +1,64 @@
-import io
 import os
+import io
 import requests
 from datetime import datetime
+from io import BytesIO
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, PageBreak, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib import colors
 from reportlab.lib.units import inch
+from PIL import Image as PILImage
 from config import CLIENT_NAME
 import api_client
 
 def get_image_from_url(url, width=2*inch, height=2*inch, headers=None):
-    """Faz download de uma imagem a partir da URL de forma síncrona para não deixar buracos."""
+    """Faz download de uma imagem, calcula pixels para preencher a celula e salva em alta qualidade."""
     try:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
-        img_data = io.BytesIO(response.content)
-        # Tenta carregar a imagem com ReportLab
-        return RLImage(img_data, width=width, height=height)
+        img_bytes = response.content
+
+        pil_img = PILImage.open(BytesIO(img_bytes))
+
+        if pil_img.mode in ("RGBA", "P"):
+            pil_img = pil_img.convert("RGB")
+
+        orig_w, orig_h = pil_img.size
+        display_w = int(width)
+        display_h = int(height)
+
+        target_dpi = 150
+
+        render_by_w = int(display_w * target_dpi / 72)
+        render_by_h = int(display_h * target_dpi / 72)
+
+        ratio_w = render_by_w / orig_w
+        ratio_h = render_by_h / orig_h
+        ratio = max(ratio_w, ratio_h)
+
+        new_w = int(orig_w * ratio)
+        new_h = int(orig_h * ratio)
+
+        if (new_w, new_h) != (orig_w, orig_h):
+            pil_img = pil_img.resize((new_w, new_h), PILImage.Resampling.LANCZOS)
+
+        output = BytesIO()
+        pil_img.save(output, format="JPEG", quality=92, optimize=True)
+        output.seek(0)
+
+        img_aspect = orig_w / orig_h
+        cell_aspect = display_w / display_h
+
+        if img_aspect > cell_aspect:
+            final_display_w = display_w
+            final_display_h = int(display_w / img_aspect)
+        else:
+            final_display_h = display_h
+            final_display_w = int(display_h * img_aspect)
+
+        return RLImage(output, width=final_display_w, height=final_display_h)
     except Exception as e:
         print(f"Erro ao carregar imagem {url}: {e}")
         return None
@@ -200,15 +240,19 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     story.append(PageBreak())
 
     # ================= CORPO (Iteração das Tasks) =================
-    # Ordenar as tasks alvo pela data da última entrega (mesma ordem visual da tabela)
-    # 1. Pega os IDs únicos de tasks na ordem que aparecem na tabela de entregas
     ordered_task_ids = entregas_sorted["task_id"].dropna().unique().tolist()
     ordered_task_ids = [int(tid) for tid in ordered_task_ids]
     
-    # 2. Cria um mapa para buscar as tasks rapidamente
     task_map = {t["id"]: t for t in tasks_alvo}
-    
-    # 3. Recria a lista de tasks na ordem correta
+
+    task_dates = {}
+    for tid in ordered_task_ids:
+        task_rows = entregas_sorted[entregas_sorted["task_id"] == tid]
+        if not task_rows.empty:
+            dates = task_rows["data"].sort_values(ascending=False)
+            if not dates.empty:
+                task_dates[tid] = str(dates.iloc[0])
+
     tasks_alvo_sorted = [task_map[tid] for tid in ordered_task_ids if tid in task_map]
 
     for task in tasks_alvo_sorted:
@@ -216,17 +260,9 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         task_title = task.get("title", f"Task #{task['id']}")
         story.append(Paragraph(task_title, task_title_style))
         
-        # Responsáveis
-        assignments = task.get("assignments", [])
-        responsaveis = []
-        for a in assignments:
-            assignee = a.get("assignee", {})
-            name = assignee.get("name")
-            if name:
-                responsaveis.append(name)
-        
-        resp_text = ", ".join(responsaveis) if responsaveis else "Nenhum responsável designado"
-        story.append(Paragraph(f"<b>Responsáveis:</b> {resp_text}", normal_style))
+        # Data de entrega
+        entrega_date = task_dates.get(task["id"], "Data não disponível")
+        story.append(Paragraph(f"<b>Entregue em:</b> {entrega_date}", normal_style))
         story.append(Spacer(1, 10))
         
         # Coleta anexos da task e dos comentários
@@ -256,44 +292,75 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         if not anexos:
             story.append(Paragraph("Nenhum arquivo anexado nesta task.", normal_style))
         else:
-            # Para cada anexo, verifica se tem thumbnail ou imagem válida
-            for anexo in anexos:
-                file_name = anexo.get("name") or anexo.get("file_name") or anexo.get("data_file_name") or "Arquivo sem nome"
+            # Agrupa anexos em blocos de 6 (grid 3x2)
+            GRID_COLS = 3
+            GRID_ROWS = 2
+            PAGE_SIZE = GRID_COLS * GRID_ROWS
+            
+            cell_width = (doc.pagesize[0] - 80) / GRID_COLS
+            cell_height = 2.2 * inch
+            
+            for page_start in range(0, len(anexos), PAGE_SIZE):
+                page_anexos = anexos[page_start:page_start + PAGE_SIZE]
                 
-                thumb_url = None
-                
-                # Se for um documento do tipo UploadedDocument e tiver ID, podemos tentar baixar
-                if "id" in anexo and "file_extension" in anexo:
-                    ext = str(anexo.get("file_extension", "")).lower()
-                    if ext in ["jpg", "jpeg", "png", "gif", "webp"]:
-                        # Endpoint direto para download do documento
-                        thumb_url = f"https://runrun.it/api/v1.0/documents/{anexo['id']}/download"
-                else:
-                    # Legado (caso venha no formato antigo de attachments)
-                    thumbnails = anexo.get("thumbnails", {})
-                    if isinstance(thumbnails, dict) and thumbnails:
-                        thumb_url = thumbnails.get("medium") or thumbnails.get("small") or list(thumbnails.values())[0]
-                
-                if thumb_url:
-                    # Passa os headers de autenticação, pois o endpoint de download exige
-                    headers = api_client._HEADERS if "runrun.it" in thumb_url else None
-                    img = get_image_from_url(thumb_url, width=2.5*inch, height=2.5*inch, headers=headers)
+                table_data = []
+                row = []
+                for idx, anexo in enumerate(page_anexos):
+                    file_name = (anexo.get("name") or anexo.get("file_name") or anexo.get("data_file_name") or "Arquivo sem nome")
+                    file_name_short = (file_name[:45] + "...") if len(file_name) > 48 else file_name
+                    
+                    thumb_url = None
+                    
+                    if "id" in anexo and "file_extension" in anexo:
+                        ext = str(anexo.get("file_extension", "")).lower()
+                        if ext in ["jpg", "jpeg", "png", "gif", "webp"]:
+                            thumb_url = f"https://runrun.it/api/v1.0/documents/{anexo['id']}/download"
+                    else:
+                        thumbnails = anexo.get("thumbnails", {})
+                        if isinstance(thumbnails, dict) and thumbnails:
+                            thumb_url = thumbnails.get("medium") or thumbnails.get("small") or list(thumbnails.values())[0]
+                    
+                    if thumb_url:
+                        headers = api_client._HEADERS if "runrun.it" in thumb_url else None
+                        img = get_image_from_url(thumb_url, width=cell_width - 0.2*inch, height=cell_height - 0.4*inch, headers=headers)
+                    else:
+                        img = None
+                    
                     if img:
-                        # Para alinhar melhor, colocamos numa mini-tabela ou simplesmente empilhados
-                        # Aqui vamos adicionar a imagem e depois o nome centralizado abaixo
-                        from reportlab.platypus import Table, TableStyle
-                        t = Table([[img], [Paragraph(file_name, attachment_name_style)]], colWidths=[3*inch])
-                        t.setStyle(TableStyle([
+                        cell_content = Table([[img], [Paragraph(f"<b>{file_name_short}</b>", attachment_name_style)]], colWidths=[cell_width - 0.2*inch])
+                        cell_content.setStyle(TableStyle([
                             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+                            ('TOPPADDING', (0,0), (-1,-1), 5),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
                         ]))
-                        story.append(t)
-                        story.append(Spacer(1, 15))
                     else:
-                        story.append(Paragraph(f"• {file_name} (Erro ao carregar thumbnail)", normal_style))
-                else:
-                    story.append(Paragraph(f"• {file_name}", normal_style))
+                        cell_content = Paragraph(f"📄 {file_name_short}<br/><font size='8' color='gray'>Erro ao carregar</font>", attachment_name_style)
+                    
+                    row.append(cell_content)
+                    if len(row) == GRID_COLS:
+                        table_data.append(row)
+                        row = []
+                
+                if row:
+                    while len(row) < GRID_COLS:
+                        row.append(Paragraph("", normal_style))
+                    table_data.append(row)
+                
+                col_widths = [cell_width] * GRID_COLS
+                grid_table = Table(table_data, colWidths=col_widths)
+                grid_table.setStyle(TableStyle([
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#DDDDDD')),
+                    ('TOPPADDING', (0,0), (-1,-1), 8),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+                    ('LEFTPADDING', (0,0), (-1,-1), 8),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 8),
+                ]))
+                story.append(grid_table)
+                if page_start + PAGE_SIZE < len(anexos):
+                    story.append(PageBreak())
         
         story.append(PageBreak())
 
