@@ -104,16 +104,16 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     todos_anexos_aprovados = database.load_all_anexos()
     
     def get_file_mes_ano(anexo, selected_mes_ano):
-         # Procura tag MM/YYYY em tags_data
-         tags_data = anexo.get("tags_data")
-         if isinstance(tags_data, list):
-             for t in tags_data:
-                 tag_name = str(t.get("name", ""))
-                 match = re.search(r'(\d{2}/\d{4})', tag_name)
-                 if match: return match.group(1)
+        # Procura tag MM/YYYY em tags_data
+        tags_data = anexo.get("tags_data")
+        if isinstance(tags_data, list):
+            for t in tags_data:
+                tag_name = str(t.get("name", ""))
+                match = re.search(r'(\d{2}/\d{4})', tag_name)
+                if match: return match.group(1)
 
-         # Fallbacks
-         for key in ["tags", "document_tags"]:
+        # Fallbacks
+        for key in ["tags", "document_tags"]:
             tags = anexo.get(key)
             if isinstance(tags, list):
                 for t in tags:
@@ -122,10 +122,12 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
             elif isinstance(tags, str):
                 match = re.search(r'(\d{2}/\d{4})', tags)
                 if match: return match.group(1)
+        
         # Fallback to name
         name = str(anexo.get("name") or anexo.get("file_name") or "")
         match = re.search(r'(\d{2}/\d{4})', name)
         if match: return match.group(1)
+        
         # Se não tiver tag, assume o mês selecionado
         return selected_mes_ano
 
