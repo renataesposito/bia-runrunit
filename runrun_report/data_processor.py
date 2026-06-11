@@ -186,34 +186,49 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
     duration = int((time.time() - start) * 1000)
     log_api_request("documents_batch", {"task_count": len(task_ids)}, "success", duration, sum(len(a) for a in all_task_attachments.values()))
 
-    # Processamento de todos os anexos para salvar no banco
+    # Coleta todos os IDs de documentos encontrados para buscar detalhes (tags_data)
+    doc_ids_to_fetch = set()
+    temp_anexos = []
+    for tid in task_ids:
+        for a in all_task_attachments.get(tid, []):
+            if "id" in a:
+                doc_ids_to_fetch.add(a["id"])
+                a["task_id"] = tid
+                temp_anexos.append(a)
+        for c in all_comments.get(tid, []):
+            c_attachments = c.get("attachments", []) or c.get("documents", [])
+            for a in c_attachments:
+                if "id" in a:
+                    doc_ids_to_fetch.add(a["id"])
+                    a["task_id"] = tid
+                    temp_anexos.append(a)
+
+    print(f"Buscando detalhes de {len(doc_ids_to_fetch)} documentos para obter tags...")
+    start = time.time()
+    doc_details = api_client.get_document_details_batch(list(doc_ids_to_fetch))
+    duration = int((time.time() - start) * 1000)
+    log_api_request("document_details_batch", {"doc_count": len(doc_ids_to_fetch)}, "success", duration, len(doc_details))
+
+    # Processamento de todos os anexos para salvar no banco, agora com tags_data
     anexos_unicos = {}
     
     def is_aprovado(anexo):
         target = "aprovado"
-        for key in ["tags", "document_tags"]:
-            tags = anexo.get(key)
-            if isinstance(tags, list) and any(target in str(t).lower() for t in tags):
+        # Agora usamos tags_data que vem do detalhe do documento
+        tags_data = anexo.get("tags_data")
+        if isinstance(tags_data, list):
+            if any(target == str(t.get("name", "")).lower() for t in tags_data):
                 return True
-            elif isinstance(tags, str) and target in tags.lower():
-                return True
-        name = str(anexo.get("name") or anexo.get("file_name") or "").lower()
-        return target in name
+        return False
 
-    for task in gestao_tasks:
-        tid = task["id"]
-        # Anexos da task
-        for a in all_task_attachments.get(tid, []):
-            if "id" in a and is_aprovado(a):
-                a["task_id"] = tid
-                anexos_unicos[a["id"]] = a
-        # Anexos dos comentários
-        for c in all_comments.get(tid, []):
-            c_attachments = c.get("attachments", []) or c.get("documents", [])
-            for a in c_attachments:
-                if "id" in a and is_aprovado(a):
-                    a["task_id"] = tid
-                    anexos_unicos[a["id"]] = a
+    for a in temp_anexos:
+        did = a["id"]
+        detail = doc_details.get(did)
+        if detail:
+            # Merge detail into basic info (detail should have tags_data)
+            a.update(detail)
+            if is_aprovado(a):
+                anexos_unicos[did] = a
                     
     database.save_anexos(list(anexos_unicos.values()))
     

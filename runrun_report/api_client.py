@@ -143,3 +143,26 @@ def get_task_attachments_batch(task_ids: list[int]) -> dict:
             final_data[tid] = []
             
     return final_data
+
+
+def get_document_details_batch(doc_ids: list[int]) -> dict:
+    """
+    Busca os detalhes de múltiplos documentos para obter tags_data, etc.
+    Retorna um dicionário {doc_id: document_data}
+    """
+    job_map = {}
+    for did in doc_ids:
+        jid = queue_manager.enqueue(f"documents/{did}", {}, priority=3)
+        job_map[jid] = did
+        
+    results = queue_manager.wait_for_jobs(list(job_map.keys()))
+    
+    final_data = {}
+    for jid, did in job_map.items():
+        res = results.get(jid)
+        if res and res["status"] == "completed" and res["result"] is not None:
+            final_data[did] = res["result"]
+        else:
+            final_data[did] = None
+            
+    return final_data
