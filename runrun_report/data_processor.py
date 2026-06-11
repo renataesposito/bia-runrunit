@@ -180,6 +180,31 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
     duration = int((time.time() - start) * 1000)
     log_api_request("comments_batch", {"task_count": len(task_ids)}, "success", duration, sum(len(c) for c in all_comments.values()))
     
+    print(f"Enfileirando busca de anexos para {len(gestao_tasks)} tarefas...")
+    start = time.time()
+    all_task_attachments = api_client.get_task_attachments_batch(task_ids)
+    duration = int((time.time() - start) * 1000)
+    log_api_request("documents_batch", {"task_count": len(task_ids)}, "success", duration, sum(len(a) for a in all_task_attachments.values()))
+
+    # Processamento de todos os anexos para salvar no banco
+    anexos_unicos = {}
+    for task in gestao_tasks:
+        tid = task["id"]
+        # Anexos da task
+        for a in all_task_attachments.get(tid, []):
+            if "id" in a:
+                a["task_id"] = tid
+                anexos_unicos[a["id"]] = a
+        # Anexos dos comentários
+        for c in all_comments.get(tid, []):
+            c_attachments = c.get("attachments", []) or c.get("documents", [])
+            for a in c_attachments:
+                if "id" in a:
+                    a["task_id"] = tid
+                    anexos_unicos[a["id"]] = a
+                    
+    database.save_anexos(list(anexos_unicos.values()))
+    
     for task in gestao_tasks:
         task_tags = task.get("task_tags") or []
         if isinstance(task_tags, str):

@@ -364,6 +364,106 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         
         story.append(PageBreak())
 
+    import database
+    todos_anexos = database.load_all_anexos()
+    
+    correcoes = {}
+    for a in todos_anexos:
+        # Check if the task is already in the main report
+        if a.get("task_id") in ordered_task_ids:
+            continue
+            
+        # Helper function to check tags
+        def has_tag(anexo, target_tag):
+            target = target_tag.lower()
+            for key in ["tags", "document_tags"]:
+                tags = anexo.get(key)
+                if isinstance(tags, list) and any(target in str(t).lower() for t in tags):
+                    return True
+                elif isinstance(tags, str) and target in tags.lower():
+                    return True
+            # Fallback to name
+            name = str(anexo.get("name") or anexo.get("file_name") or "").lower()
+            return target in name
+
+        if has_tag(a, "aprovado") and has_tag(a, mes_ano):
+            tid = a.get("task_id")
+            if tid not in correcoes:
+                correcoes[tid] = []
+            correcoes[tid].append(a)
+
+    if correcoes:
+        story.append(PageBreak())
+        story.append(Paragraph("<b>Correções (Casos de Mídia)</b>", title_style))
+        story.append(Paragraph("Entregas aprovadas em momentos distintos que pertencem a este mês.", subtitle_style))
+        story.append(Spacer(1, 20))
+        
+        for tid, a_list in correcoes.items():
+            # Tenta achar a task para pegar o título
+            task_title = f"Task #{tid}"
+            # Na API, talvez a task não esteja no `tasks_alvo`. Podemos usar apenas o ID.
+            story.append(Paragraph(task_title, task_title_style))
+            story.append(Spacer(1, 10))
+            
+            # Remove duplicados
+            anexos_unicos = {a["id"]: a for a in a_list}
+            anexos_cor = list(anexos_unicos.values())
+            
+            GRID_COLS = 3
+            GRID_ROWS = 2
+            PAGE_SIZE = GRID_COLS * GRID_ROWS
+            cell_width = (doc.pagesize[0] - 80) / GRID_COLS
+            cell_height = 2.2 * inch
+            
+            for page_start in range(0, len(anexos_cor), PAGE_SIZE):
+                page_anexos = anexos_cor[page_start:page_start + PAGE_SIZE]
+                table_data = []
+                row = []
+                for idx, anexo in enumerate(page_anexos):
+                    file_name = (anexo.get("name") or anexo.get("file_name") or anexo.get("data_file_name") or "Arquivo sem nome")
+                    file_name_short = (file_name[:45] + "...") if len(file_name) > 48 else file_name
+                    
+                    thumb_url = None
+                    if "id" in anexo and "file_extension" in anexo:
+                        ext = str(anexo.get("file_extension", "")).lower()
+                        if ext in ["jpg", "jpeg", "png", "gif", "webp"]:
+                            thumb_url = f"https://runrun.it/api/v1.0/documents/{anexo['id']}/download"
+                    else:
+                        thumbnails = anexo.get("thumbnails", {})
+                        if isinstance(thumbnails, dict) and thumbnails:
+                            thumb_url = thumbnails.get("medium") or thumbnails.get("small") or list(thumbnails.values())[0]
+                    
+                    if thumb_url:
+                        headers = api_client._HEADERS if "runrun.it" in thumb_url else None
+                        img = get_image_from_url(thumb_url, width=cell_width - 0.2*inch, height=cell_height - 0.4*inch, headers=headers)
+                    else:
+                        img = None
+                    
+                    if img:
+                        cell_content = [img, Spacer(1, 5), Paragraph(file_name_short, attachment_name_style)]
+                    else:
+                        cell_content = [Spacer(1, cell_height/2 - 0.5*inch), Paragraph(f"📄 {file_name_short}", attachment_name_style)]
+                        
+                    row.append(cell_content)
+                    
+                    if len(row) == GRID_COLS or idx == len(page_anexos) - 1:
+                        while len(row) < GRID_COLS:
+                            row.append([])
+                        table_data.append(row)
+                        row = []
+                        
+                grid_table = Table(table_data, colWidths=[cell_width]*GRID_COLS)
+                grid_table.setStyle(TableStyle([
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ('LEFTPADDING', (0,0), (-1,-1), 8),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 8),
+                ]))
+                story.append(grid_table)
+                if page_start + PAGE_SIZE < len(anexos_cor):
+                    story.append(PageBreak())
+            story.append(Spacer(1, 20))
+
     # Build the PDF
     doc.build(story)
     buffer.seek(0)

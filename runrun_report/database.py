@@ -128,6 +128,15 @@ def init_database():
         )
     """)
 
+    # Tabela de anexos (documentos do Runrun.it)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS anexos (
+            id INTEGER PRIMARY KEY,
+            task_id INTEGER,
+            data_json TEXT
+        )
+    """)
+
     # Criar indexes para otimização
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entregas_data ON entregas(data)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entregas_mes_ano ON entregas(mes_ano)")
@@ -188,6 +197,46 @@ def load_escopo_from_db() -> pd.DataFrame:
 
 
 # ==================== Operações de Entregas ====================
+
+def save_anexos(anexos_list: list):
+    """Salva os anexos no banco de dados."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Limpa tabela existente (ou podemos usar INSERT OR REPLACE)
+    cursor.execute("DELETE FROM anexos")
+    
+    for anexo in anexos_list:
+        try:
+            anexo_json = json.dumps(anexo, ensure_ascii=False)
+        except (TypeError, ValueError):
+            anexo_json = str(anexo)
+            
+        cursor.execute(
+            "INSERT OR REPLACE INTO anexos (id, task_id, data_json) VALUES (?, ?, ?)",
+            (anexo.get("id"), anexo.get("task_id"), anexo_json)
+        )
+        
+    conn.commit()
+    conn.close()
+    print(f"Anexos salvos no banco: {len(anexos_list)} registros")
+
+def load_all_anexos() -> list:
+    """Carrega todos os anexos do banco de dados."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM anexos")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    anexos = []
+    for row in rows:
+        try:
+            anexo_dict = json.loads(row["data_json"])
+            anexos.append(anexo_dict)
+        except (TypeError, ValueError):
+            pass
+    return anexos
 
 def save_entregas(entregas_df: pd.DataFrame):
     """Salva as entregas no banco de dados."""

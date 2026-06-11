@@ -296,6 +296,51 @@ def api_debug_status():
         "last_sync": last_sync
     })
 
+@app.route("/api/debug/orphan-cases")
+@requires_auth
+def api_debug_orphan_cases():
+    """Retorna anexos órfãos (com tag aprovado mas sem tag de competência MM/YYYY)."""
+    import re
+    todos_anexos = database.load_all_anexos()
+    
+    def has_tag(anexo, target_tag):
+        target = target_tag.lower()
+        for key in ["tags", "document_tags"]:
+            tags = anexo.get(key)
+            if isinstance(tags, list) and any(target in str(t).lower() for t in tags):
+                return True
+            elif isinstance(tags, str) and target in tags.lower():
+                return True
+        name = str(anexo.get("name") or anexo.get("file_name") or "").lower()
+        return target in name
+
+    orphans = []
+    for a in todos_anexos:
+        if has_tag(a, "aprovado"):
+            # Check if it has any MM/YYYY tag
+            has_competence = False
+            for key in ["tags", "document_tags"]:
+                tags = a.get(key)
+                if isinstance(tags, list) and any(re.search(r'\d{2}/\d{4}', str(t)) for t in tags):
+                    has_competence = True
+                    break
+                elif isinstance(tags, str) and re.search(r'\d{2}/\d{4}', tags):
+                    has_competence = True
+                    break
+            if not has_competence:
+                name = str(a.get("name") or a.get("file_name") or "").lower()
+                if re.search(r'\d{2}/\d{4}', name):
+                    has_competence = True
+
+            if not has_competence:
+                orphans.append({
+                    "id": a.get("id"),
+                    "task_id": a.get("task_id"),
+                    "name": a.get("name") or a.get("file_name") or "Sem nome",
+                    "created_at": a.get("created_at") or a.get("insert_date") or ""
+                })
+                
+    return jsonify(orphans)
 
 @app.route("/api/meses-com-dados")
 def api_meses_com_dados():
