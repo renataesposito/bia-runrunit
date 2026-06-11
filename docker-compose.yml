@@ -29,7 +29,7 @@ services:
     container_name: cloudflared-tunnel
     command: tunnel run
     environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+      - TUNNEL_TOKEN=eyJhIjoiOWYyNjUzYjdlMWU5NmYwOTExMjhjMWQwMWJjN2E4NTUiLCJ0IjoiYTYwYjE0MmItMmQxZS00ZmNlLTlkNjUtMjE4NTAzYjM5MTU4IiwicyI6Ik56QTVNamM1WTJVdE5ESm1OUzAwTUdJMkxUaGxOVEl0Tm1RM1lUUmlPREkxTmpGaSJ9
     depends_on:
       app:
         condition: service_healthy
