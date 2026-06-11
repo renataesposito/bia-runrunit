@@ -96,7 +96,41 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     # 3. Busca os comentários e anexos detalhados em lote
     task_ids_list = [t["id"] for t in tasks_alvo]
     all_comments = api_client.get_comments_batch(task_ids_list)
-    all_task_attachments = api_client.get_task_attachments_batch(task_ids_list)
+    # all_task_attachments não é mais necessário aqui pois usaremos os anexos do banco
+    # all_task_attachments = api_client.get_task_attachments_batch(task_ids_list)
+
+    import database
+    import re
+    todos_anexos_aprovados = database.load_all_anexos()
+    
+    def get_file_mes_ano(anexo, selected_mes_ano):
+        # Procura tag MM/YYYY
+        for key in ["tags", "document_tags"]:
+            tags = anexo.get(key)
+            if isinstance(tags, list):
+                for t in tags:
+                    match = re.search(r'(\d{2}/\d{4})', str(t))
+                    if match: return match.group(1)
+            elif isinstance(tags, str):
+                match = re.search(r'(\d{2}/\d{4})', tags)
+                if match: return match.group(1)
+        # Fallback to name
+        name = str(anexo.get("name") or anexo.get("file_name") or "")
+        match = re.search(r'(\d{2}/\d{4})', name)
+        if match: return match.group(1)
+        # Se não tiver tag, assume o mês selecionado
+        return selected_mes_ano
+
+    # Filtra anexos que pertencem ao mês selecionado
+    anexos_relatorio = [a for a in todos_anexos_aprovados if get_file_mes_ano(a, mes_ano) == mes_ano]
+    
+    # Agrupa por task_id
+    anexos_por_task = {}
+    for a in anexos_relatorio:
+        tid = int(a.get("task_id") or 0)
+        if tid not in anexos_por_task:
+            anexos_por_task[tid] = []
+        anexos_por_task[tid].append(a)
 
     # 4. Configuração do Documento PDF (Landscape)
     buffer = io.BytesIO()
@@ -265,29 +299,10 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         story.append(Paragraph(f"<b>Entregue em:</b> {entrega_date}", normal_style))
         story.append(Spacer(1, 10))
         
-        # Coleta anexos da task e dos comentários
-        anexos = []
+        # Coleta anexos da task filtrados pelo banco (já filtrados por aprovado e mes_ano)
+        anexos = anexos_por_task.get(task["id"], [])
         
-        # Documentos/Anexos da raiz da task (usando o payload detalhado ou o da listagem como fallback)
-        task_attachments = all_task_attachments.get(task["id"], [])
-        if not task_attachments:
-            task_attachments = task.get("attachments", [])
-        anexos.extend(task_attachments)
-        
-        # Documentos/Anexos dos comentários
-        comments = all_comments.get(task["id"], [])
-        for c in comments:
-            c_attachments = c.get("attachments", []) or c.get("documents", [])
-            anexos.extend(c_attachments)
-            
-        # Remove duplicados baseados no ID do anexo
-        anexos_unicos = {}
-        for a in anexos:
-            if "id" in a:
-                anexos_unicos[a["id"]] = a
-        anexos = list(anexos_unicos.values())
-        
-        story.append(Paragraph("<b>Arquivos Anexados:</b>", section_style))
+        story.append(Paragraph("<b>Arquivos Anexados (Aprovados):</b>", section_style))
         
         if not anexos:
             story.append(Paragraph("Nenhum arquivo anexado nesta task.", normal_style))
@@ -364,33 +379,8 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         
         story.append(PageBreak())
 
-    import database
-    todos_anexos = database.load_all_anexos()
-    
-    correcoes = {}
-    for a in todos_anexos:
-        # Check if the task is already in the main report
-        if a.get("task_id") in ordered_task_ids:
-            continue
-            
-        # Helper function to check tags
-        def has_tag(anexo, target_tag):
-            target = target_tag.lower()
-            for key in ["tags", "document_tags"]:
-                tags = anexo.get(key)
-                if isinstance(tags, list) and any(target in str(t).lower() for t in tags):
-                    return True
-                elif isinstance(tags, str) and target in tags.lower():
-                    return True
-            # Fallback to name
-            name = str(anexo.get("name") or anexo.get("file_name") or "").lower()
-            return target in name
-
-        if has_tag(a, "aprovado") and has_tag(a, mes_ano):
-            tid = a.get("task_id")
-            if tid not in correcoes:
-                correcoes[tid] = []
-            correcoes[tid].append(a)
+    # ================= CORREÇÕES (Tasks de outros meses com anexos deste mês) =================
+    correcoes = {tid: a_list for tid, a_list in anexos_por_task.items() if tid not in ordered_task_ids}
 
     if correcoes:
         story.append(PageBreak())

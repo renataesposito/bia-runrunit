@@ -188,18 +188,30 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
 
     # Processamento de todos os anexos para salvar no banco
     anexos_unicos = {}
+    
+    def is_aprovado(anexo):
+        target = "aprovado"
+        for key in ["tags", "document_tags"]:
+            tags = anexo.get(key)
+            if isinstance(tags, list) and any(target in str(t).lower() for t in tags):
+                return True
+            elif isinstance(tags, str) and target in tags.lower():
+                return True
+        name = str(anexo.get("name") or anexo.get("file_name") or "").lower()
+        return target in name
+
     for task in gestao_tasks:
         tid = task["id"]
         # Anexos da task
         for a in all_task_attachments.get(tid, []):
-            if "id" in a:
+            if "id" in a and is_aprovado(a):
                 a["task_id"] = tid
                 anexos_unicos[a["id"]] = a
         # Anexos dos comentários
         for c in all_comments.get(tid, []):
             c_attachments = c.get("attachments", []) or c.get("documents", [])
             for a in c_attachments:
-                if "id" in a:
+                if "id" in a and is_aprovado(a):
                     a["task_id"] = tid
                     anexos_unicos[a["id"]] = a
                     

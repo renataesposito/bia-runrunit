@@ -228,26 +228,6 @@
     </div>
   </div>
 
-  <!-- Tabela de Casos Órfãos -->
-  <div class="card panel mb-3">
-    <div class="card-body">
-      <p class="sec-title mb-2">Casos Órfãos (Aprovados sem Mês/Ano)</p>
-      <div class="table-responsive" style="max-height:300px;overflow-y:auto">
-        <table class="table table-sm table-bordered mb-0">
-          <thead style="position:sticky;top:0;z-index:1">
-            <tr>
-              <th>Task ID</th>
-              <th>Arquivo ID</th>
-              <th>Nome do Arquivo</th>
-              <th>Data de Criação</th>
-            </tr>
-          </thead>
-          <tbody id="t-orphans-body"></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
   <!-- Link para voltar -->
   <div class="text-center mb-4">
     <a href="/" class="btn btn-outline-secondary">← Voltar ao Dashboard</a>
@@ -259,48 +239,17 @@
 <script>
 let _logs = [];
 let _ignored = [];
-let _orphans = [];
 
 async function init() {
   await loadStatus();
   await loadLogs();
   await loadIgnored();
-  await loadOrphans();
   await loadQueueData();
   await loadMesesPdf();
   document.getElementById('loading').style.display = 'none';
   
   // Atualiza os dados da fila a cada 3 segundos
   setInterval(loadQueueData, 3000);
-}
-
-async function loadOrphans() {
-  try {
-    const res = await fetch('/api/debug/orphan-cases');
-    _orphans = await res.json();
-    renderOrphans();
-  } catch (err) {
-    console.error('Erro ao carregar casos órfãos:', err);
-  }
-}
-
-function renderOrphans() {
-  const tbody = document.getElementById('t-orphans-body');
-  if (!_orphans.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Nenhum caso órfão encontrado</td></tr>';
-    return;
-  }
-  
-  tbody.innerHTML = _orphans.map(o => {
-    return `
-      <tr>
-        <td>${o.task_id}</td>
-        <td>${o.id}</td>
-        <td>${o.name}</td>
-        <td>${o.created_at}</td>
-      </tr>
-    `;
-  }).join('');
 }
 
 async function loadMesesPdf() {
