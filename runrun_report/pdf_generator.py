@@ -277,7 +277,7 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
 
             # File name
             file_name = (anexo.get("name") or anexo.get("file_name") or anexo.get("data_file_name") or "Arquivo sem nome")
-            file_name_short = (file_name[:40] + "...") if len(file_name) > 43 else file_name
+            file_name_short = (file_name[:67] + "..." + file_name[-3:]) if len(file_name) > 73 else file_name
 
             # Image
             thumb_url = None
