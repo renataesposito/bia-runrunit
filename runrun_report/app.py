@@ -10,6 +10,7 @@ import pandas as pd
 import data_processor
 import export
 import database
+import thumbnail_manager
 
 load_dotenv()
 
@@ -110,8 +111,16 @@ def _start_scheduler():
             id='daily_sync',
             name='Sincronização diária'
         )
+        _scheduler.add_job(
+            thumbnail_manager.sync_all_thumbnails,
+            'cron',
+            hour=2,
+            minute=0,
+            id='daily_thumbnails_sync',
+            name='Sincronização de thumbnails'
+        )
         _scheduler.start()
-        print("Scheduler iniciado - sincronização diária às 00:00")
+        print("Scheduler iniciado - sincronização diária às 00:00 e thumbnails às 02:00")
     except Exception as e:
         print(f"AVISO: não foi possível iniciar o scheduler: {e}")
 

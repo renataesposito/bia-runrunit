@@ -13,6 +13,7 @@ from reportlab.pdfgen import canvas
 from PIL import Image as PILImage
 from config import CLIENT_NAME
 import api_client
+import thumbnail_manager
 
 
 # Template paths
@@ -32,41 +33,15 @@ T_MARGIN = 60.0  # Adjusted for title space
 B_MARGIN = 40.0
 
 
-def get_image_from_url(url, width=2*inch, height=2*inch, headers=None):
-    """Faz download de uma imagem, calcula pixels para preencher a celula e salva em alta qualidade."""
+def get_image_from_path(file_path, width=2*inch, height=2*inch):
+    """Lê a imagem padronizada local e retorna como RLImage para o PDF."""
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        img_bytes = response.content
-
-        pil_img = PILImage.open(BytesIO(img_bytes))
-
-        if pil_img.mode in ("RGBA", "P"):
-            pil_img = pil_img.convert("RGB")
-
+        pil_img = PILImage.open(file_path)
         orig_w, orig_h = pil_img.size
+        
         display_w = int(width)
         display_h = int(height)
-
-        target_dpi = 150
-
-        render_by_w = int(display_w * target_dpi / 72)
-        render_by_h = int(display_h * target_dpi / 72)
-
-        ratio_w = render_by_w / orig_w
-        ratio_h = render_by_h / orig_h
-        ratio = max(ratio_w, ratio_h)
-
-        new_w = int(orig_w * ratio)
-        new_h = int(orig_h * ratio)
-
-        if (new_w, new_h) != (orig_w, orig_h):
-            pil_img = pil_img.resize((new_w, new_h), PILImage.Resampling.LANCZOS)
-
-        output = BytesIO()
-        pil_img.save(output, format="JPEG", quality=92, optimize=True)
-        output.seek(0)
-
+        
         img_aspect = orig_w / orig_h
         cell_aspect = display_w / display_h
 
@@ -77,9 +52,9 @@ def get_image_from_url(url, width=2*inch, height=2*inch, headers=None):
             final_display_h = display_h
             final_display_w = int(display_h * img_aspect)
 
-        return RLImage(output, width=final_display_w, height=final_display_h)
+        return RLImage(file_path, width=final_display_w, height=final_display_h)
     except Exception as e:
-        print(f"Erro ao carregar imagem {url}: {e}")
+        print(f"Erro ao carregar imagem local {file_path}: {e}")
         return None
 
 
@@ -296,23 +271,18 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
             file_name_short = (file_name[:67] + "..." + file_name[-3:]) if len(file_name) > 73 else file_name
 
             # Image
-            thumb_url = None
+            thumb_path = None
             if "id" in anexo and "file_extension" in anexo:
                 ext = str(anexo.get("file_extension", "")).lower()
-                if ext in ["jpg", "jpeg", "png", "gif", "webp"]:
-                    thumb_url = f"https://runrun.it/api/v1.0/documents/{anexo['id']}/download"
-            else:
-                thumbnails = anexo.get("thumbnails", {})
-                if isinstance(thumbnails, dict) and thumbnails:
-                    thumb_url = thumbnails.get("medium") or thumbnails.get("small") or list(thumbnails.values())[0]
+                anexo_id = anexo["id"]
+                url = f"https://runrun.it/api/v1.0/documents/{anexo_id}/download"
+                thumb_path = thumbnail_manager.get_or_create_thumbnail(anexo_id, url, ext)
 
             img = None
-            if thumb_url:
-                headers = api_client._HEADERS if "runrun.it" in thumb_url else None
-                img = get_image_from_url(thumb_url,
+            if thumb_path:
+                img = get_image_from_path(thumb_path,
                                          width=cell_width - 0.3 * inch,
-                                         height=cell_height - 0.8 * inch,
-                                         headers=headers)
+                                         height=cell_height - 0.8 * inch)
 
             # Draw image centered
             if img:

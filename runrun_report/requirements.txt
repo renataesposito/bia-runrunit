@@ -8,3 +8,4 @@ apscheduler
 reportlab
 Pillow
 pypdf
+pdf2image
