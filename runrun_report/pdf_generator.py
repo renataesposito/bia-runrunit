@@ -155,14 +155,14 @@ def _draw_entregas_table_on_template(entregas_sorted, escopo_df, styles):
             str(row.get("quantidade", 0))
         ])
 
-    # Calculate column widths to span the page as much as possible
+    # Calculate column widths: Projeto larger, Entregável much smaller
     available_width = PAGE_W - L_MARGIN - R_MARGIN
     col_widths = [
         available_width * 0.08,   # Data
-        available_width * 0.18,  # Grupo
-        available_width * 0.28,  # Projeto
-        available_width * 0.41,  # Entregável
-        available_width * 0.05   # Qtd
+        available_width * 0.15,   # Grupo
+        available_width * 0.55,   # Projeto (bigger)
+        available_width * 0.17,   # Entregável (much smaller, ~35% of previous)
+        available_width * 0.05    # Qtd
     ]
 
     t_resumo = Table(table_data, colWidths=col_widths, repeatRows=1)
@@ -201,31 +201,26 @@ def _draw_entregas_table_on_template(entregas_sorted, escopo_df, styles):
 def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
     """
     Creates task media pages using NucleaReport3rdPage.pdf as base:
-    - Adds task title above "Entregue em:"
-    - Adds date after "Entregue em:"
-    - Adds media grid
+    - Adds task title higher up, in light gray
+    - Adds entrega date below/next to "Entregue em:", also light gray
+    - Adds "Arquivos Anexados (Aprovados):" section and media grid
     """
     pages = []
 
-    # Load template to check dimensions
-    template_pdf = pypdf.PdfReader(_PAGE3_TEMPLATE_PATH)
-
     # Load styles
-    task_title_style = ParagraphStyle(
-        'TaskTitleStyle',
-        parent=styles['Heading2'],
-        fontSize=24,
-        textColor=colors.HexColor('#1A1A1A'),
-        spaceAfter=10
+    section_style = ParagraphStyle(
+        'SectionStyle',
+        parent=styles['Heading3'],
+        fontSize=14,
+        textColor=colors.HexColor('#555555'),  # Light gray
+        spaceAfter=15
     )
-
     attachment_name_style = ParagraphStyle(
         'AttachmentName',
         parent=styles['Normal'],
         fontSize=10,
         alignment=TA_CENTER
     )
-    normal_style = styles['Normal']
 
     # Split media into chunks (3 cols x 2 rows per page = 6 items per page)
     GRID_COLS = 3
@@ -235,31 +230,42 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
     cell_width = (PAGE_W - L_MARGIN - R_MARGIN) / GRID_COLS
     cell_height = 2.2 * inch
 
-    # Split anexos into pages
-    for page_start in range(0, max(1, len(anexos)), PAGE_SIZE):
-        page_anexos = anexos[page_start:page_start + PAGE_SIZE]
+    # We'll handle the first page specially to show all the text (title, date, Arquivos Anexados)
+    # Then subsequent pages just have the grid
+    anexos_chunks = []
+    for i in range(0, max(1, len(anexos)), PAGE_SIZE):
+        anexos_chunks.append(anexos[i:i+PAGE_SIZE])
 
-        # Get this page's template
+    for chunk_idx, page_anexos in enumerate(anexos_chunks):
+        # Get template page
         template_page = pypdf.PdfReader(_PAGE3_TEMPLATE_PATH).pages[0]
 
         # Create overlay
         overlay_buf = io.BytesIO()
         c = canvas.Canvas(overlay_buf, pagesize=(PAGE_W, PAGE_H))
 
-        # First: Task title above "Entregue em:"
-        # From earlier inspection: "Entregue em:" is at y≈98-129 (top-down) →
-        # PDF y-coordinate (bottom-up): PAGE_H - 129 ≈ 681
-        c.setFont("Helvetica-Bold", 24)
-        c.setFillColorRGB(0.102, 0.102, 0.102)
-        c.drawString(L_MARGIN, 710, task.get("title", f"Task #{task['id']}"))
+        # First page gets the extra text elements
+        if chunk_idx == 0:
+            # Task title: higher up, light gray (#666666)
+            c.setFont("Helvetica-Bold", 24)
+            c.setFillColorRGB(0.4, 0.4, 0.4)
+            c.drawString(L_MARGIN, 740, task.get("title", f"Task #{task['id']}"))
 
-        # Then: Date after "Entregue em:"
-        c.setFont("Helvetica", 24)
-        c.drawString(190, 681, entrega_date)
+            # Date: after "Entregue em:", light gray, lower position
+            c.setFont("Helvetica", 24)
+            c.drawString(L_MARGIN + 190, 680, entrega_date)
 
-        # Draw grid of images using reportlab canvas
+            # "Arquivos Anexados (Aprovados):"
+            c.setFont("Helvetica-Bold", 14)
+            c.setFillColorRGB(0.2, 0.2, 0.2)
+            c.drawString(L_MARGIN, 600, "Arquivos Anexados (Aprovados):")
+
+        # Draw grid
+        if chunk_idx == 0:
+            current_y = 580  # Below the section title
+        else:
+            current_y = PAGE_H - B_MARGIN - 50  # Start near the top for subsequent pages
         current_x = L_MARGIN
-        current_y = PAGE_H - B_MARGIN - 180  # Below the text area
 
         for idx, anexo in enumerate(page_anexos):
             # Draw cell border (light gray)
