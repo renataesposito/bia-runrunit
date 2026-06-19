@@ -222,16 +222,25 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
         alignment=TA_CENTER
     )
 
-    # Split media into chunks (3 cols x 2 rows per page = 6 items per page)
+    # Split media into chunks (3 cols x 3 rows per page = 9 items per page)
     GRID_COLS = 3
-    GRID_ROWS = 2
+    GRID_ROWS = 3
     PAGE_SIZE = GRID_COLS * GRID_ROWS
 
     cell_width = (PAGE_W - L_MARGIN - R_MARGIN) / GRID_COLS
-    cell_height = 2.2 * inch
+    cell_height = 1.9 * inch # Adjusted to fit 3 rows nicely
 
-    # We'll handle the first page specially to show all the text (title, date, Arquivos Anexados)
-    # Then subsequent pages just have the grid
+    # Style for wrapped title
+    title_style = ParagraphStyle(
+        'TaskTitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=24,
+        textColor=colors.HexColor('#666666'),
+        leading=28,
+        alignment=TA_LEFT,
+    )
+
     anexos_chunks = []
     for i in range(0, max(1, len(anexos)), PAGE_SIZE):
         anexos_chunks.append(anexos[i:i+PAGE_SIZE])
@@ -244,29 +253,36 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
         overlay_buf = io.BytesIO()
         c = canvas.Canvas(overlay_buf, pagesize=(PAGE_W, PAGE_H))
 
-        # First page gets the extra text elements
-        if chunk_idx == 0:
-            # Task title: higher up, light gray (#666666)
-            c.setFont("Helvetica-Bold", 24)
-            c.setFillColorRGB(0.4, 0.4, 0.4)
-            c.drawString(L_MARGIN, 740, task.get("title", f"Task #{task['id']}"))
-
-            # Date: RIGHT AFTER "Entregue em:", perfect vertical baseline alignment!
-            # Template line in top-down: y0≈98 (top), y1≈129 (bottom) →
-            # PDF coords (bottom-up): baseline ≈ 810 - 98 - (129-98)/2? Wait no, let's try y=700, then adjust down!
-            c.setFont("Helvetica", 24)
-            c.drawString(L_MARGIN + 146, 697, entrega_date)
-
-            # "Arquivos Anexados (Aprovados):"
-            c.setFont("Helvetica-Bold", 14)
-            c.setFillColorRGB(0.2, 0.2, 0.2)
-            c.drawString(L_MARGIN, 600, "Arquivos Anexados (Aprovados):")
-
-        # Draw grid
-        if chunk_idx == 0:
-            current_y = 580  # Below the section title
+        # Title and Headers on EVERY page for alignment
+        # Task title: with wrapping and safety margin
+        title_text = task.get("title", f"Task #{task['id']}")
+        p_title = Paragraph(title_text, title_style)
+        
+        # 10% safety margin on the right
+        avail_width = PAGE_W - L_MARGIN - (PAGE_W * 0.10)
+        tw, th = p_title.wrap(avail_width, 100)
+        
+        # If wrapped (th > 30), raise the first line. 
+        # Base y for title is 740 (baseline of a single line).
+        title_y_base = 740
+        if th > 30:
+            p_title.drawOn(c, L_MARGIN, title_y_base - 10) # Draw wrapped (2 lines)
         else:
-            current_y = PAGE_H - B_MARGIN - 50  # Start near the top for subsequent pages
+            # For 1 line, th is ~28. Using title_y_base - 10 puts it at y=730 (was y=712)
+            p_title.drawOn(c, L_MARGIN, title_y_base - 10)
+
+        # Date: RIGHT AFTER "Entregue em:"
+        c.setFont("Helvetica", 24)
+        c.setFillColorRGB(0.4, 0.4, 0.4)
+        c.drawString(L_MARGIN + 146, 697, entrega_date)
+
+        # "Arquivos Anexados (Aprovados):"
+        c.setFont("Helvetica-Bold", 14)
+        c.setFillColorRGB(0.2, 0.2, 0.2)
+        c.drawString(L_MARGIN, 600, "Arquivos Anexados (Aprovados):")
+
+        # Draw grid - Always starts at the same Y for alignment
+        current_y = 580 
         current_x = L_MARGIN
 
         for idx, anexo in enumerate(page_anexos):
