@@ -251,11 +251,11 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
             c.setFillColorRGB(0.4, 0.4, 0.4)
             c.drawString(L_MARGIN, 740, task.get("title", f"Task #{task['id']}"))
 
-            # Date: RIGHT AFTER "Entregue em:"!
-            # Template "Entregue em:" ends at x≈185 (top-down), light gray, matching baseline
-            # PDF y-coordinate for baseline: PAGE_H - 129 (top-down y1) ≈ 681
-            c.setFont("Helvetica", 20)  # Slightly smaller to match template better
-            c.drawString(L_MARGIN + 146, 683, entrega_date)
+            # Date: RIGHT AFTER "Entregue em:", perfect vertical baseline alignment!
+            # Template line in top-down: y0≈98 (top), y1≈129 (bottom) →
+            # PDF coords (bottom-up): baseline ≈ 810 - 98 - (129-98)/2? Wait no, let's try y=700, then adjust down!
+            c.setFont("Helvetica", 24)
+            c.drawString(L_MARGIN + 146, 697, entrega_date)
 
             # "Arquivos Anexados (Aprovados):"
             c.setFont("Helvetica-Bold", 14)
