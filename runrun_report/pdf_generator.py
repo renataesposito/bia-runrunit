@@ -364,38 +364,76 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     import re
     todos_anexos_aprovados = database.load_all_anexos()
 
-    def get_file_mes_ano(anexo, selected_mes_ano):
+    # Create task_mes_ano_dict with the latest mes_ano for each mapped task
+    latest_entregas = entregas_df[entregas_df["mapeado"] == True].sort_values(by="data", ascending=False).drop_duplicates(subset=["task_id"])
+    task_mes_ano_dict = dict(zip(latest_entregas["task_id"], latest_entregas["mes_ano"]))
+    
+    # Precompute task dates to be used both in normal flow and correcoes
+    task_dates_dict = {}
+    for _, row in latest_entregas.iterrows():
+        task_dates_dict[row["task_id"]] = str(row["data"])
+
+    def get_file_competence_yyyy_mm(anexo, task_month):
+        def extract_tag(tags_list):
+            for t in tags_list:
+                match = re.search(r'(\d{2})/(\d{4})', str(t))
+                if match:
+                    return f"{match.group(2)}-{match.group(1)}"
+            return None
+
+        # Procura tag MM/YYYY em tags_data
         tags_data = anexo.get("tags_data")
         if isinstance(tags_data, list):
-            for t in tags_data:
-                tag_name = str(t.get("name", ""))
-                match = re.search(r'(\d{2}/\d{4})', tag_name)
-                if match:
-                    return match.group(1)
+            res = extract_tag([t.get("name", "") for t in tags_data])
+            if res:
+                return res
+
+        # Fallbacks (outras chaves e nome)
         for key in ["tags", "document_tags"]:
             tags = anexo.get(key)
             if isinstance(tags, list):
-                for t in tags:
-                    match = re.search(r'(\d{2}/\d{4})', str(t))
-                    if match:
-                        return match.group(1)
+                res = extract_tag(tags)
+                if res:
+                    return res
             elif isinstance(tags, str):
-                match = re.search(r'(\d{2}/\d{4})', tags)
+                match = re.search(r'(\d{2})/(\d{4})', tags)
                 if match:
-                    return match.group(1)
+                    return f"{match.group(2)}-{match.group(1)}"
+                    
         name = str(anexo.get("name") or anexo.get("file_name") or "")
-        match = re.search(r'(\d{2}/\d{4})', name)
+        match = re.search(r'(\d{2})/(\d{4})', name)
         if match:
-            return match.group(1)
-        return selected_mes_ano
+            return f"{match.group(2)}-{match.group(1)}"
 
-    anexos_relatorio = [a for a in todos_anexos_aprovados if get_file_mes_ano(a, mes_ano) == mes_ano]
+        # Se não tiver tag, assume o mês da tarefa
+        return task_month
+
+    # Filtra e classifica os anexos que pertencem ao mês selecionado
     anexos_por_task = {}
-    for a in anexos_relatorio:
+    correcoes_por_task = {}
+    
+    for a in todos_anexos_aprovados:
         tid = int(a.get("task_id") or 0)
-        if tid not in anexos_por_task:
-            anexos_por_task[tid] = []
-        anexos_por_task[tid].append(a)
+        task_month = task_mes_ano_dict.get(tid)
+        
+        # Ignora se a tarefa não possui entregas mapeadas
+        if not task_month:
+            continue
+            
+        file_month = get_file_competence_yyyy_mm(a, task_month)
+        
+        # Só incluímos no relatório se a competência do arquivo bater com o mês selecionado
+        if file_month == mes_ano:
+            is_correcao = (task_month != mes_ano)
+            
+            if is_correcao:
+                if tid not in correcoes_por_task:
+                    correcoes_por_task[tid] = []
+                correcoes_por_task[tid].append(a)
+            else:
+                if tid not in anexos_por_task:
+                    anexos_por_task[tid] = []
+                anexos_por_task[tid].append(a)
 
     # 4. Prepare styles
     styles = getSampleStyleSheet()
@@ -415,27 +453,27 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     # Add task media pages
     ordered_task_ids = entregas_sorted["task_id"].dropna().unique().tolist()
     ordered_task_ids = [int(tid) for tid in ordered_task_ids]
-    task_map = {t["id"]: t for t in tasks_alvo}
-    task_dates = {}
-    for tid in ordered_task_ids:
-        task_rows = entregas_sorted[entregas_sorted["task_id"] == tid]
-        if not task_rows.empty:
-            dates = task_rows["data"].sort_values(ascending=False)
-            if not dates.empty:
-                task_dates[tid] = str(dates.iloc[0])
+    task_map = {t["id"]: t for t in gestao_tasks}
     tasks_alvo_sorted = [task_map[tid] for tid in ordered_task_ids if tid in task_map]
 
     for task in tasks_alvo_sorted:
-        entrega_date = task_dates.get(task["id"], "Data não disponível")
+        entrega_date = task_dates_dict.get(task["id"], "Data não disponível")
         anexos = anexos_por_task.get(task["id"], [])
-        task_pages = _draw_task_pages_on_template(task, entrega_date, anexos, styles)
+
+        # Se a task não tiver anexos aprovados para este mês, criamos um placeholder
+        # para manter a padronização visual das páginas (página numerada do template).
+        # Caso contrário, gera as páginas com grade de mídias.
+        if not anexos:
+            # Gera uma página do template apenas com o cabeçalho (sem grade de anexos)
+            task_pages = _draw_task_pages_on_template(task, entrega_date, [], styles)
+        else:
+            task_pages = _draw_task_pages_on_template(task, entrega_date, anexos, styles)
+
         for page in task_pages:
             writer.add_page(page)
 
     # Add corrections (tasks from other months, but with attachments this month)
-    correcoes = {tid: a_list for tid, a_list in anexos_por_task.items() if tid not in ordered_task_ids}
-
-    if correcoes:
+    if correcoes_por_task:
         # Use a simple page for Correções title (no template needed here)
         title_overlay_buf = io.BytesIO()
         c = canvas.Canvas(title_overlay_buf, pagesize=(PAGE_W, PAGE_H))
@@ -450,9 +488,11 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         title_overlay_buf.seek(0)
         writer.add_page(pypdf.PdfReader(title_overlay_buf).pages[0])
 
-        for tid, a_list in correcoes.items():
-            dummy_task = {"id": tid, "title": f"Task #{tid}"}
-            task_pages = _draw_task_pages_on_template(dummy_task, "", a_list, styles)
+        for tid, a_list in correcoes_por_task.items():
+            task = task_map.get(tid, {"id": tid, "title": f"Task #{tid}"})
+            entrega_date = task_dates_dict.get(tid, "Data não disponível")
+            
+            task_pages = _draw_task_pages_on_template(task, entrega_date, a_list, styles)
             for page in task_pages:
                 writer.add_page(page)
 

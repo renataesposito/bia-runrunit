@@ -8,36 +8,57 @@ import database
 from config import API_BASE_URL
 
 # Configurações do Rate Limiting e Fila
-MAX_REQ_PER_MIN = 30
+MAX_REQ_PER_MIN = 75
 SLIDING_WINDOW_SEC = 60
 MAX_RETRIES = 5
 RETRY_DELAYS = [2, 5, 10, 30, 60]  # Segundos
+
+# Quantidade de workers paralelos. Limitado ao número de requisições por minuto.
+MAX_WORKERS = min(MAX_REQ_PER_MIN, 25)
 
 _worker_thread = None
 _worker_running = False
 
 def start_worker(headers: dict):
-    """Inicia a thread do worker que processará a fila em background."""
+    """Inicia o pool de workers que processará a fila em background."""
     global _worker_thread, _worker_running
     if _worker_thread is not None and _worker_thread.is_alive():
         return
         
     _worker_running = True
-    _worker_thread = threading.Thread(target=_worker_loop, args=(headers,), daemon=True)
+    _worker_thread = threading.Thread(target=_supervisor_loop, args=(headers,), daemon=True)
     _worker_thread.start()
-    print("Queue worker iniciado com sucesso.")
+    print(f"Queue worker pool iniciado com {MAX_WORKERS} workers paralelos.")
 
 def stop_worker():
     global _worker_running
     _worker_running = False
 
+def _supervisor_loop(headers: dict):
+    """Loop do supervisor que gerencia os workers."""
+    active_workers = set()
+    
+    while _worker_running:
+        # Limpa workers finalizados
+        active_workers = {t for t in active_workers if t.is_alive()}
+        
+        # Inicia novos workers até atingir o limite
+        while len(active_workers) < MAX_WORKERS and _worker_running:
+            t = threading.Thread(target=_worker_loop, args=(headers,), daemon=True)
+            t.start()
+            active_workers.add(t)
+            # Pequeno sleep para escalonamento
+            time.sleep(0.1)
+            
+        time.sleep(0.5)
+
 def _worker_loop(headers: dict):
-    """Loop contínuo do worker da fila."""
+    """Loop contínuo de cada worker da fila."""
     while _worker_running:
         try:
             processed = process_next_job(headers)
             if not processed:
-                # Fila vazia ou rate limit atingido
+                # Fila vazia ou rate limit atingido: aguarda um pouco
                 time.sleep(1)
         except Exception as e:
             print(f"Erro no worker loop: {e}")
@@ -237,7 +258,7 @@ def process_next_job(headers: dict) -> bool:
         
         # Verifica rate limit antes de iniciar
         if not _check_rate_limit(conn):
-            conn.commit()  # Libera o lock de transação
+            conn.rollback()  # Libera o lock de transação
             conn.close()
             return False
             
@@ -255,7 +276,7 @@ def process_next_job(headers: dict) -> bool:
         
         job = cursor.fetchone()
         if not job:
-            conn.commit()  # Libera o lock de transação
+            conn.rollback()  # Libera o lock de transação
             conn.close()
             return False
             
@@ -285,6 +306,9 @@ def process_next_job(headers: dict) -> bool:
         
     # ----- FIM DA SEÇÃO CRÍTICA (RACE CONDITION) -----
     
+    # A partir daqui, cada worker usa sua própria conexão para não travar
+    # o SQLite em ambiente multi-thread
+    worker_conn = database.get_connection()
     try:
         url = f"{API_BASE_URL}/{endpoint}"
         start_time = time.time()
@@ -319,8 +343,10 @@ def process_next_job(headers: dict) -> bool:
             
         duration_ms = int((time.time() - start_time) * 1000)
         
+        worker_cursor = worker_conn.cursor()
+        
         # Atualiza a métrica placeholder com os dados reais
-        cursor.execute(
+        worker_cursor.execute(
             """UPDATE api_metrics 
                SET status_code = ?, duration_ms = ?, success = ?
                WHERE id = ?""",
@@ -329,7 +355,7 @@ def process_next_job(headers: dict) -> bool:
         
         # Atualiza o job
         if success:
-            cursor.execute(
+            worker_cursor.execute(
                 """UPDATE api_queue 
                    SET status = 'completed', processed_at = ?, result = ?
                    WHERE id = ?""",
@@ -342,7 +368,7 @@ def process_next_job(headers: dict) -> bool:
             should_retry = status_code == 429 or status_code >= 500 or status_code == 0
             
             if attempts >= MAX_RETRIES or not should_retry:
-                cursor.execute(
+                worker_cursor.execute(
                     """UPDATE api_queue 
                        SET status = 'error', processed_at = ?, error_log = ?
                        WHERE id = ?""",
@@ -356,15 +382,15 @@ def process_next_job(headers: dict) -> bool:
                     delay += 10
                     
                 next_attempt = (datetime.now() + timedelta(seconds=delay)).isoformat()
-                cursor.execute(
+                worker_cursor.execute(
                     """UPDATE api_queue 
                        SET status = 'pending', attempts = ?, next_attempt_at = ?, error_log = ?
                        WHERE id = ?""",
                     (attempts, next_attempt, error_msg, job_id)
                 )
                 
-        conn.commit()
+        worker_conn.commit()
     finally:
-        conn.close()
+        worker_conn.close()
         
     return True
