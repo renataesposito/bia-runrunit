@@ -71,31 +71,85 @@ def download_file(url: str, dest_path: str) -> bool:
 
 def convert_pdf_to_image(pdf_path: str) -> Image.Image:
     """Extracts the first page of a PDF as an Image."""
-    images = convert_from_path(pdf_path, first_page_only=True, dpi=150)
-    if images:
-        return images[0]
-    raise Exception("PDF não contém páginas.")
+    try:
+        if not os.path.exists(pdf_path):
+            raise Exception(f"Arquivo PDF não encontrado: {pdf_path}")
+        
+        file_size = os.path.getsize(pdf_path)
+        if file_size == 0:
+            raise Exception(f"Arquivo PDF está vazio: {pdf_path}")
+
+        print(f"Convertendo PDF {pdf_path} ({file_size} bytes)...")
+        # Try with pdftoppm (default)
+        images = convert_from_path(pdf_path, first_page_only=True, dpi=150)
+        
+        if not images:
+            # Try with pdftocairo as fallback
+            print("Tentando fallback com pdftocairo...")
+            images = convert_from_path(pdf_path, first_page_only=True, dpi=150, use_pdftocairo=True)
+
+        if images:
+            return images[0]
+        raise Exception("PDF não contém páginas ou falha na conversão.")
+    except Exception as e:
+        print(f"Erro em convert_pdf_to_image para {pdf_path}: {e}")
+        # Log more info if it's a subprocess error
+        if "pdftoppm" in str(e) or "poppler" in str(e).lower():
+            print("DICA: Verifique se poppler-utils está instalado e no PATH.")
+        raise
 
 def convert_office_to_pdf(office_path: str, out_dir: str) -> str:
     """Converts an Office document to PDF using LibreOffice headless."""
+    if not os.path.exists(office_path):
+        raise Exception(f"Arquivo Office não encontrado: {office_path}")
+
     # Process runs libreoffice --headless --convert-to pdf <file> --outdir <dir>
+    # Added -env:UserInstallation to avoid profile lock/permission issues in Docker
     cmd = [
         "libreoffice",
         "--headless",
+        "--nologo",
+        "--nodefault",
+        "-env:UserInstallation=file:///tmp/libo_user",
         "--convert-to",
         "pdf",
         office_path,
         "--outdir",
         out_dir
     ]
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    print(f"Executando LibreOffice: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        if result.stdout: print(f"LibreOffice stdout: {result.stdout}")
+        if result.stderr: print(f"LibreOffice stderr: {result.stderr}")
+    except subprocess.CalledProcessError as e:
+        print(f"Erro ao executar LibreOffice (code {e.returncode}): {e.stderr}")
+        # Try 'soffice' as fallback
+        print("Tentando fallback com comando 'soffice'...")
+        cmd[0] = "soffice"
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        except Exception as e2:
+            print(f"Erro no fallback 'soffice': {e2}")
+            raise e
     
     # The output PDF has the same name as the office file but with .pdf extension
     base_name = os.path.splitext(os.path.basename(office_path))[0]
     pdf_path = os.path.join(out_dir, f"{base_name}.pdf")
+    
     if os.path.exists(pdf_path):
+        print(f"PDF gerado com sucesso: {pdf_path}")
         return pdf_path
-    raise Exception("Falha ao converter documento Office para PDF.")
+        
+    # Fallback search if name changed slightly (LibreOffice sometimes sanitizes names)
+    print(f"Buscando PDF gerado em {out_dir}...")
+    for f in os.listdir(out_dir):
+        if f.lower().endswith(".pdf"):
+            found_path = os.path.join(out_dir, f)
+            print(f"Encontrado PDF alternativo: {found_path}")
+            return found_path
+            
+    raise Exception(f"Falha ao localizar PDF gerado pelo LibreOffice para {office_path}.")
 
 def extract_video_frame(video_path: str, thumb_path: str):
     """Extracts a frame from a video at 1 second mark using FFmpeg."""
@@ -107,7 +161,11 @@ def extract_video_frame(video_path: str, thumb_path: str):
         "-vframes", "1",
         thumb_path
     ]
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    try:
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Erro ao executar FFmpeg: {e.stderr}")
+        raise
     if not os.path.exists(thumb_path):
         raise Exception("Falha ao extrair frame do vídeo.")
 
@@ -119,7 +177,9 @@ def get_or_create_thumbnail(anexo_id: int, url: str, extension: str) -> str:
     if os.path.exists(thumb_path):
         return thumb_path
 
-    ext = extension.lower()
+    ext = extension.lower().strip()
+    if ext.startswith("."):
+        ext = ext[1:]
     
     # Find the category of the extension
     category = None
@@ -129,8 +189,10 @@ def get_or_create_thumbnail(anexo_id: int, url: str, extension: str) -> str:
             break
             
     if not category:
+        print(f"Extensão não suportada: {ext} (anexo {anexo_id})")
         return None # Unsupported extension
 
+    print(f"Gerando thumbnail para anexo {anexo_id} (categoria: {category}, ext: {ext})...")
     with tempfile.TemporaryDirectory() as tmpdir:
         # Step 1: Download the file
         temp_file = os.path.join(tmpdir, f"file_{anexo_id}.{ext}")

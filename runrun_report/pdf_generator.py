@@ -272,11 +272,20 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
 
             # Image
             thumb_path = None
-            if "id" in anexo and "file_extension" in anexo:
-                ext = str(anexo.get("file_extension", "")).lower()
+            if "id" in anexo:
                 anexo_id = anexo["id"]
-                url = f"https://runrun.it/api/v1.0/documents/{anexo_id}/download"
-                thumb_path = thumbnail_manager.get_or_create_thumbnail(anexo_id, url, ext)
+                ext = anexo.get("file_extension")
+                
+                # Se não tem file_extension, tenta extrair do nome do arquivo
+                if not ext:
+                    fname = (anexo.get("name") or anexo.get("file_name") or anexo.get("data_file_name") or "")
+                    if "." in fname:
+                        ext = fname.split(".")[-1]
+                
+                if ext:
+                    ext = str(ext).lower().strip()
+                    url = f"https://runrun.it/api/v1.0/documents/{anexo_id}/download"
+                    thumb_path = thumbnail_manager.get_or_create_thumbnail(anexo_id, url, ext)
 
             img = None
             if thumb_path:

@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice \
     poppler-utils \
     ffmpeg \
+    libsm6 libice6 libxt6 libxrender1 libfontconfig1 libcups2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copia requirements e instala dependências Python
