@@ -72,7 +72,7 @@ def get_image_from_url(url, width=2*inch, height=2*inch, headers=None):
 def _build_cover_page(mes_ano: str):
     """
     Constrói a página de capa do relatório a partir do template NucleaReport1stPage.pdf,
-    sobrepondo o texto da referência (YYYY-MM) logo após o "Referência:" já presente no template.
+    sobrepondo o texto da referência (YYYY-MM em maiúsculas) logo após o "Referência:" já presente no template.
 
     O template é mantido integralmente; a única alteração é a adição do YYYY-MM usando
     Helvetica-Bold (fonte padrão do documento), 33pt, na cor branca, posicionado logo após
@@ -83,15 +83,17 @@ def _build_cover_page(mes_ano: str):
     page_w = float(template_page.mediabox.width)
     page_h = float(template_page.mediabox.height)
 
-    # Cria um PDF overlay com apenas o texto YYYY-MM.
+    # Cria um PDF overlay com apenas o texto YYYY-MM EM MAIÚSCULAS
     overlay_buf = io.BytesIO()
     c = canvas.Canvas(overlay_buf, pagesize=(page_w, page_h))
     c.setFont("Helvetica-Bold", 33)
     c.setFillColorRGB(1, 1, 1)  # branco, mesma cor do "Referência:" no template
-    # No template (1440x810 pt), o texto "Referência:" ocupa
-    # x≈111.53-285.11, y≈168-212 (coordenadas PDF, origem inferior-esquerda).
-    # Posicionamos o YYYY-MM logo após o ":", com pequeno gap, alinhado pela baseline.
-    c.drawString(296, 174, mes_ano)
+    # No template (1440x810 pt), "Referência:" ocupa
+    # x≈111.53-285.11, y≈597.60-641.82 (pymupdf, top-down).
+    # Em coordenadas PDF (inferior-esquerda):
+    # - x do texto alvo: logo após o ":" → ~291
+    # - y: alinhado pela baseline → ~190
+    c.drawString(291, 190, mes_ano.upper())
     c.showPage()
     c.save()
     overlay_buf.seek(0)
@@ -180,11 +182,11 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
             anexos_por_task[tid] = []
         anexos_por_task[tid].append(a)
 
-    # 4. Configuração do Documento PDF (Landscape)
+    # 4. Configuração do Documento PDF (tamanho igual à capa)
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=landscape(A4),
+        pagesize=(1440.0, 810.0),
         rightMargin=40, leftMargin=40,
         topMargin=40, bottomMargin=40
     )
@@ -283,9 +285,9 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
             str(row.get("quantidade", 0))
         ])
 
-    # Larguras ajustadas sem as colunas "Mês/Ano" e "Map." (A4 landscape ~10.5 inch de área útil)
+    # Larguras ajustadas sem as colunas "Mês/Ano" e "Map." (tamanho 1440 total)
     # Aumentando proporcionalmente as outras colunas para preencher o espaço
-    col_widths = [1.0*inch, 2.0*inch, 4.2*inch, 2.8*inch, 0.5*inch]
+    col_widths = [1.0*inch, 3.0*inch, 4.0*inch, 4.0*inch, 0.5*inch]
     
     t_resumo = Table(table_data, colWidths=col_widths, repeatRows=1)
     
@@ -496,7 +498,7 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
                     story.append(PageBreak())
             story.append(Spacer(1, 20))
 
-    # Constrói o PDF com o conteúdo (sem a capa) e mescla com a capa (template + overlay).
+    # Constrói o PDF com o conteúdo (sem a capa) e mescla com a capa (template + overlay)
     doc.build(story)
     buffer.seek(0)
 
