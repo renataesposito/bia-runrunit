@@ -1,7 +1,7 @@
 import os
 import io
+import pypdf
 import requests
-from datetime import datetime
 from io import BytesIO
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, PageBreak, Table, TableStyle
@@ -9,9 +9,15 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib import colors
 from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 from PIL import Image as PILImage
 from config import CLIENT_NAME
 import api_client
+
+# Caminho do template da primeira página (capa) do relatório.
+# O template já contém o layout "Referência:" + branding; apenas adicionamos
+# o texto YYYY-MM logo após "Referência:" via overlay.
+_COVER_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "NucleaReport1stPage.pdf")
 
 def get_image_from_url(url, width=2*inch, height=2*inch, headers=None):
     """Faz download de uma imagem, calcula pixels para preencher a celula e salva em alta qualidade."""
@@ -62,6 +68,38 @@ def get_image_from_url(url, width=2*inch, height=2*inch, headers=None):
     except Exception as e:
         print(f"Erro ao carregar imagem {url}: {e}")
         return None
+
+def _build_cover_page(mes_ano: str):
+    """
+    Constrói a página de capa do relatório a partir do template NucleaReport1stPage.pdf,
+    sobrepondo o texto da referência (YYYY-MM) logo após o "Referência:" já presente no template.
+
+    O template é mantido integralmente; a única alteração é a adição do YYYY-MM usando
+    Helvetica-Bold (fonte padrão do documento), 33pt, na cor branca, posicionado logo após
+    o ":" do "Referência:" com a baseline alinhada.
+    """
+    template_pdf = pypdf.PdfReader(_COVER_TEMPLATE_PATH)
+    template_page = template_pdf.pages[0]
+    page_w = float(template_page.mediabox.width)
+    page_h = float(template_page.mediabox.height)
+
+    # Cria um PDF overlay com apenas o texto YYYY-MM.
+    overlay_buf = io.BytesIO()
+    c = canvas.Canvas(overlay_buf, pagesize=(page_w, page_h))
+    c.setFont("Helvetica-Bold", 33)
+    c.setFillColorRGB(1, 1, 1)  # branco, mesma cor do "Referência:" no template
+    # No template (1440x810 pt), o texto "Referência:" ocupa
+    # x≈111.53-285.11, y≈168-212 (coordenadas PDF, origem inferior-esquerda).
+    # Posicionamos o YYYY-MM logo após o ":", com pequeno gap, alinhado pela baseline.
+    c.drawString(296, 174, mes_ano)
+    c.showPage()
+    c.save()
+    overlay_buf.seek(0)
+
+    # Mescla o overlay sobre a página do template (mantém todo o template intacto).
+    overlay_pdf = pypdf.PdfReader(overlay_buf)
+    template_page.merge_page(overlay_pdf.pages[0])
+    return template_page
 
 def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     """
@@ -202,15 +240,9 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     story = []
 
     # ================= CAPA =================
-    story.append(Spacer(1, 1*inch))
-    story.append(Paragraph(f"Relatório de Status", title_style))
-    story.append(Paragraph(f"Cliente: {CLIENT_NAME}", subtitle_style))
-    
-    data_geracao = datetime.now().strftime("%d/%m/%Y às %H:%M")
-    story.append(Paragraph(f"Referência: {mes_ano}", subtitle_style))
-    story.append(Paragraph(f"Data de Geração: {data_geracao}", subtitle_style))
-    
-    story.append(PageBreak())
+    # A capa (primeira página) é montada separadamente a partir do template
+    # NucleaReport1stPage.pdf + overlay com o YYYY-MM (ver _build_cover_page),
+    # e mesclada ao final com o conteúdo gerado abaixo.
 
     # ================= HISTÓRICO DE ENTREGAS (Tabela) =================
     story.append(Paragraph("<b>Histórico de Entregas (Comentários)</b>", section_style))
@@ -464,7 +496,15 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
                     story.append(PageBreak())
             story.append(Spacer(1, 20))
 
-    # Build the PDF
+    # Constrói o PDF com o conteúdo (sem a capa) e mescla com a capa (template + overlay).
     doc.build(story)
     buffer.seek(0)
-    return buffer.getvalue()
+
+    writer = pypdf.PdfWriter()
+    writer.add_page(_build_cover_page(mes_ano))
+    for page in pypdf.PdfReader(buffer).pages:
+        writer.add_page(page)
+
+    final_buffer = io.BytesIO()
+    writer.write(final_buffer)
+    return final_buffer.getvalue()
