@@ -410,22 +410,29 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
 
     def get_main_tag(anexo):
         # Tags prioritárias para segmentação do relatório
-        priority_tags = ["aprovado", "aguardando_aprovacao", "correcao"]
+        priority_map = {
+            "aprovado": ["aprovado", "aprovada"],
+            "aguardando_aprovacao": ["aguardando_aprovacao", "aguardando aprovação", "aguardando aprovacao", "em aprovação", "em aprovacao"],
+            "correcao": ["correcao", "correção", "ajuste"]
+        }
+        
         tags_data = anexo.get("tags_data")
         if isinstance(tags_data, list):
-            names = [str(t.get("name", "")).lower() for t in tags_data]
-            for pt in priority_tags:
-                if pt in names:
-                    return pt
-            # Se tiver outras tags, retorna a primeira não prioritária
-            if names:
-                # Tenta filtrar a tag de competência (MM/YYYY) para não usá-la como label principal
-                other_tags = [n for n in names if not re.match(r'\d{2}/\d{4}', n)]
-                if other_tags:
-                    return other_tags[0]
+            names = [str(t.get("name", "")).lower().strip() for t in tags_data]
+            
+            # Verifica as prioritárias usando as variações
+            for canonical, variations in priority_map.items():
+                if any(v in names for v in variations):
+                    return canonical
+                    
+            # Se tiver outras tags, retorna a primeira não prioritária (e que não seja data)
+            other_tags = [n for n in names if not re.match(r'\d{2}/\d{4}', n)]
+            if other_tags:
+                return other_tags[0]
+                
         return "correcao" # Fallback se não tiver tag ou apenas tag de data
 
-    def format_tag_label(tag_name):
+    def format_tag_label(tag_name, is_correcao=False):
         if not tag_name: return ""
         # Regras de capitalização PT-BR
         words = tag_name.replace("_", " ").split()
@@ -438,15 +445,18 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
                 capitalized.append(word.lower())
             else:
                 capitalized.append(word.capitalize())
-        return " ".join(capitalized)
+        
+        base_label = " ".join(capitalized)
+        if is_correcao:
+            return f"{base_label} - Correção"
+        return base_label
 
     # Agrupadores por tag (fileiras)
-    # Estrutura: { tag_name: { task_id: [anexos] } }
-    fileiras = {
-        "aprovado": {},
-        "aguardando_aprovacao": {},
-        "correcao": {} # Aqui entram 'correcao' e tags não listadas
-    }
+    # Estrutura: { tag_label: { task_id: [anexos] } }
+    fileiras_com_label = {}
+    
+    # Ordem das tags prioritárias
+    priority_tags_order = ["aprovado", "aguardando_aprovacao", "correcao"]
     
     for a in todos_anexos_aprovados:
         tid = int(a.get("task_id") or 0)
@@ -458,13 +468,20 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         # Só incluímos no relatório se a competência do arquivo bater com o mês selecionado
         if file_month == mes_ano:
             main_tag = get_main_tag(a)
+            is_correcao = (task_month != mes_ano)
             
-            # Determina em qual fileira o anexo entra
-            target_fileira = main_tag if main_tag in ["aprovado", "aguardando_aprovacao"] else "correcao"
+            tag_label = format_tag_label(main_tag, is_correcao=is_correcao)
             
-            if tid not in fileiras[target_fileira]:
-                fileiras[target_fileira][tid] = []
-            fileiras[target_fileira][tid].append(a)
+            if tag_label not in fileiras_com_label:
+                fileiras_com_label[tag_label] = {
+                    "task_groups": {},
+                    "original_tag": main_tag,
+                    "is_correcao": is_correcao
+                }
+            
+            if tid not in fileiras_com_label[tag_label]["task_groups"]:
+                fileiras_com_label[tag_label]["task_groups"][tid] = []
+            fileiras_com_label[tag_label]["task_groups"][tid].append(a)
 
     # 4. Prepare styles
     styles = getSampleStyleSheet()
@@ -484,22 +501,46 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     # 6. Processar as fileiras na ordem definida
     task_map = {t["id"]: t for t in gestao_tasks}
     
-    # Ordem das fileiras e seus respectivos templates
-    config_fileiras = [
-        ("aprovado", _APPROVED_TEMPLATE_PATH),
-        ("aguardando_aprovacao", _WAITING_TEMPLATE_PATH),
-        ("correcao", _FIX_OTHERS_TEMPLATE_PATH)
-    ]
-
-    for tag_name, template_path in config_fileiras:
-        tasks_da_fileira = fileiras[tag_name]
-        if not tasks_da_fileira:
-            continue
+    # Função auxiliar para ordenar as fileiras conforme solicitado pelo usuário:
+    # 1. Aprovados (sem correção)
+    # 2. Aguardando Aprovação (sem correção)
+    # 3. Aprovados - Correção
+    # 4. Aguardando Aprovação - Correção
+    def sort_fileiras(label_info_tuple):
+        label, info = label_info_tuple
+        tag = info["original_tag"]
+        is_corr = info["is_correcao"]
+        
+        # Ordem primária: Normal (0) antes de Correção (1)
+        prio_corr = 1 if is_corr else 0
+        
+        # Ordem secundária: tag (aprovado > aguardando > correcao > outras)
+        try:
+            prio_tag = priority_tags_order.index(tag)
+        except ValueError:
+            prio_tag = len(priority_tags_order)
             
-        # Ordenação interna: Ordenar tasks pelo ID (ou data se preferir)
-        # E anexos dentro da task pelo nome
+        return (prio_corr, prio_tag, label)
+
+    sorted_fileiras = sorted(fileiras_com_label.items(), key=sort_fileiras)
+
+    for tag_label, info in sorted_fileiras:
+        tasks_da_fileira = info["task_groups"]
+        tag_name = info["original_tag"]
+        is_correcao = info["is_correcao"]
+        
+        # Escolha do template: se for correção (pela tag ou pela regra), usa o template de correção
+        if is_correcao or tag_name == "correcao":
+            template_path = _FIX_OTHERS_TEMPLATE_PATH
+        elif tag_name == "aprovado":
+            template_path = _APPROVED_TEMPLATE_PATH
+        elif tag_name == "aguardando_aprovacao":
+            template_path = _WAITING_TEMPLATE_PATH
+        else:
+            template_path = _FIX_OTHERS_TEMPLATE_PATH
+            
+        # Ordenação interna: Ordenar tasks pelo ID
         sorted_tids = sorted(tasks_da_fileira.keys())
-        tag_label = format_tag_label(tag_name)
         
         for tid in sorted_tids:
             task = task_map.get(tid, {"id": tid, "title": f"Task #{tid}"})

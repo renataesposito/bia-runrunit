@@ -214,16 +214,24 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
     
     def get_relevant_tag(anexo):
         # Tags de interesse em ordem de prioridade
-        targets = ["aprovado", "aguardando_aprovacao", "correcao"]
+        # Adicionado variações comuns de escrita para garantir a captura
+        targets = {
+            "aprovado": ["aprovado", "aprovada"],
+            "aguardando_aprovacao": ["aguardando_aprovacao", "aguardando aprovação", "aguardando aprovacao", "em aprovação", "em aprovacao"],
+            "correcao": ["correcao", "correção", "ajuste"]
+        }
         tags_data = anexo.get("tags_data")
         if isinstance(tags_data, list):
-            tag_names = [str(t.get("name", "")).lower() for t in tags_data]
-            for target in targets:
-                if target in tag_names:
-                    return target
-            # Se tiver outras tags mas não as prioritárias, retorna a primeira
-            if tag_names:
-                return tag_names[0]
+            tag_names = [str(t.get("name", "")).lower().strip() for t in tags_data]
+            
+            for canonical, variations in targets.items():
+                if any(v in tag_names for v in variations):
+                    return canonical
+            
+            # Se não achou nas prioritárias, tenta qualquer tag que não seja data
+            other_tags = [n for n in tag_names if not re.match(r'\d{2}/\d{4}', n)]
+            if other_tags:
+                return other_tags[0]
         return None
 
     for a in temp_anexos:

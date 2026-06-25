@@ -78,7 +78,7 @@ def get_gestao_tasks(client_id: int) -> list:
 
     return [
         t for t in unique_tasks
-        if "gest" in t.get("title", "").lower() and "atend" in t.get("title", "").lower()
+        if str(t.get("title", "")).strip().endswith("- Gestão de Atendimento")
     ]
 
 
