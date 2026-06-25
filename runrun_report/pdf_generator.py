@@ -197,13 +197,14 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
         alignment=TA_CENTER
     )
 
-    # Split media into chunks (3 cols x 3 rows per page = 9 items per page)
-    GRID_COLS = 3
-    GRID_ROWS = 3
+    # Split media into chunks (2 cols x 2 rows per page = 4 items per page)
+    # Aumentando o tamanho das thumbs em ~50%
+    GRID_COLS = 2
+    GRID_ROWS = 2
     PAGE_SIZE = GRID_COLS * GRID_ROWS
 
     cell_width = (PAGE_W - L_MARGIN - R_MARGIN) / GRID_COLS
-    cell_height = 1.9 * inch # Adjusted to fit 3 rows nicely
+    cell_height = 2.85 * inch # Aumentado de 1.9 para 2.85 (50%)
 
     # Style for wrapped title
     title_style = ParagraphStyle(

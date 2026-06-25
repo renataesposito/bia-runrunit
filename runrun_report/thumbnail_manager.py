@@ -3,6 +3,7 @@ import time
 import subprocess
 import requests
 import tempfile
+import traceback
 from io import BytesIO
 from PIL import Image
 from pdf2image import convert_from_path
@@ -23,36 +24,40 @@ THUMBNAILS_DIR = os.path.join(os.path.dirname(__file__), "data", "thumbnails")
 # Ensure the directory exists
 os.makedirs(THUMBNAILS_DIR, exist_ok=True)
 
-def standardize_image(img: Image.Image, target_size=(800, 600), bg_color=(255, 255, 255)) -> Image.Image:
+def standardize_image(img: Image.Image, target_size=(1200, 900), bg_color=(255, 255, 255)) -> Image.Image:
     """
     Resizes an image proportionally to fit within target_size and pads the rest with bg_color.
     This guarantees every thumbnail has exactly target_size dimensions.
     """
-    # Convert to RGB if it's RGBA or P
-    if img.mode in ("RGBA", "P"):
-        img = img.convert("RGB")
+    try:
+        # Convert to RGB if it's RGBA or P
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
 
-    target_w, target_h = target_size
-    orig_w, orig_h = img.size
+        target_w, target_h = target_size
+        orig_w, orig_h = img.size
 
-    # Calculate scale to fit inside target_size
-    ratio = min(target_w / orig_w, target_h / orig_h)
-    new_w = int(orig_w * ratio)
-    new_h = int(orig_h * ratio)
+        # Calculate scale to fit inside target_size
+        ratio = min(target_w / orig_w, target_h / orig_h)
+        new_w = int(orig_w * ratio)
+        new_h = int(orig_h * ratio)
 
-    # Resize the image
-    if (new_w, new_h) != (orig_w, orig_h):
-        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        # Resize the image
+        if (new_w, new_h) != (orig_w, orig_h):
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-    # Create a new image with the target size and background color
-    new_img = Image.new("RGB", target_size, bg_color)
-    
-    # Paste the resized image into the center of the new image
-    offset_x = (target_w - new_w) // 2
-    offset_y = (target_h - new_h) // 2
-    new_img.paste(img, (offset_x, offset_y))
+        # Create a new image with the target size and background color
+        new_img = Image.new("RGB", target_size, bg_color)
+        
+        # Paste the resized image into the center of the new image
+        offset_x = (target_w - new_w) // 2
+        offset_y = (target_h - new_h) // 2
+        new_img.paste(img, (offset_x, offset_y))
 
-    return new_img
+        return new_img
+    except Exception as e:
+        print(f"[THUMB] Erro em standardize_image: {e}")
+        raise
 
 def download_file(url: str, dest_path: str) -> bool:
     """Downloads a file from URL to dest_path."""
@@ -80,13 +85,13 @@ def convert_pdf_to_image(pdf_path: str) -> Image.Image:
             raise Exception(f"Arquivo PDF está vazio: {pdf_path}")
 
         print(f"Convertendo PDF {pdf_path} ({file_size} bytes)...")
-        # Try with pdftoppm (default)
-        images = convert_from_path(pdf_path, first_page_only=True, dpi=150)
+        # O argumento correto para pegar só a primeira página é last_page=1
+        images = convert_from_path(pdf_path, last_page=1, dpi=150)
         
         if not images:
             # Try with pdftocairo as fallback
             print("Tentando fallback com pdftocairo...")
-            images = convert_from_path(pdf_path, first_page_only=True, dpi=150, use_pdftocairo=True)
+            images = convert_from_path(pdf_path, last_page=1, dpi=150, use_pdftocairo=True)
 
         if images:
             return images[0]
@@ -189,38 +194,55 @@ def get_or_create_thumbnail(anexo_id: int, url: str, extension: str) -> str:
             break
             
     if not category:
-        print(f"Extensão não suportada: {ext} (anexo {anexo_id})")
+        print(f"[THUMB] Extensão não suportada: {ext} (anexo {anexo_id})")
         return None # Unsupported extension
 
-    print(f"Gerando thumbnail para anexo {anexo_id} (categoria: {category}, ext: {ext})...")
+    print(f"[THUMB] Iniciando geração: ID {anexo_id}, Ext: {ext}, Categoria: {category}")
+    print(f"[THUMB] URL: {url}")
+
     with tempfile.TemporaryDirectory() as tmpdir:
         # Step 1: Download the file
         temp_file = os.path.join(tmpdir, f"file_{anexo_id}.{ext}")
+        print(f"[THUMB] Baixando para {temp_file}...")
         if not download_file(url, temp_file):
+            print(f"[THUMB] Falha no download do anexo {anexo_id}")
             return None
+
+        file_size = os.path.getsize(temp_file)
+        print(f"[THUMB] Download concluído. Tamanho: {file_size} bytes")
 
         img = None
         try:
             # Step 2: Convert to PIL Image
             if category == "image":
+                print(f"[THUMB] Processando como imagem...")
                 img = Image.open(temp_file)
             elif category == "pdf":
+                print(f"[THUMB] Processando como PDF...")
                 img = convert_pdf_to_image(temp_file)
             elif category == "office":
+                print(f"[THUMB] Processando como Office (LibreOffice)...")
                 pdf_file = convert_office_to_pdf(temp_file, tmpdir)
+                print(f"[THUMB] Office convertido para PDF: {pdf_file}. Agora extraindo imagem...")
                 img = convert_pdf_to_image(pdf_file)
             elif category == "video":
+                print(f"[THUMB] Processando como Vídeo (FFmpeg)...")
                 temp_thumb = os.path.join(tmpdir, f"thumb_{anexo_id}.jpg")
                 extract_video_frame(temp_file, temp_thumb)
                 img = Image.open(temp_thumb)
                 
             # Step 3: Standardize and save
             if img:
-                std_img = standardize_image(img, target_size=(800, 600))
+                print(f"[THUMB] Padronizando imagem...")
+                std_img = standardize_image(img, target_size=(1200, 900))
                 std_img.save(thumb_path, "JPEG", quality=90, optimize=True)
+                print(f"[THUMB] Sucesso! Thumbnail salvo em {thumb_path}")
                 return thumb_path
+            else:
+                print(f"[THUMB] Objeto Image é None após conversão (ID {anexo_id})")
         except Exception as e:
-            print(f"Erro ao processar thumbnail do anexo {anexo_id} ({ext}): {e}")
+            print(f"[THUMB] ERRO CRÍTICO no anexo {anexo_id} ({ext}): {str(e)}")
+            traceback.print_exc()
             return None
             
     return None
