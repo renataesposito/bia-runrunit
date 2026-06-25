@@ -209,25 +209,30 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
     duration = int((time.time() - start) * 1000)
     log_api_request("document_details_batch", {"doc_count": len(doc_ids_to_fetch)}, "success", duration, len(doc_details))
 
-    # Processamento de todos os anexos para salvar no banco, agora com tags_data
+    # Processamento de todos os anexos para salvar no banco
     anexos_unicos = {}
     
-    def is_aprovado(anexo):
-        target = "aprovado"
-        # Agora usamos tags_data que vem do detalhe do documento
+    def get_relevant_tag(anexo):
+        # Tags de interesse em ordem de prioridade
+        targets = ["aprovado", "aguardando_aprovacao", "correcao"]
         tags_data = anexo.get("tags_data")
         if isinstance(tags_data, list):
-            if any(target == str(t.get("name", "")).lower() for t in tags_data):
-                return True
-        return False
+            tag_names = [str(t.get("name", "")).lower() for t in tags_data]
+            for target in targets:
+                if target in tag_names:
+                    return target
+            # Se tiver outras tags mas não as prioritárias, retorna a primeira
+            if tag_names:
+                return tag_names[0]
+        return None
 
     for a in temp_anexos:
         did = a["id"]
         detail = doc_details.get(did)
         if detail:
-            # Merge detail into basic info (detail should have tags_data)
             a.update(detail)
-            if is_aprovado(a):
+            # Salva apenas se tiver alguma tag (critério para o relatório)
+            if get_relevant_tag(a):
                 anexos_unicos[did] = a
                     
     database.save_anexos(list(anexos_unicos.values()))

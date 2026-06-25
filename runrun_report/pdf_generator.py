@@ -21,6 +21,10 @@ _TEMPLATES_DIR = os.path.dirname(__file__)
 _COVER_TEMPLATE_PATH = os.path.join(_TEMPLATES_DIR, "NucleaReport1stPage.pdf")
 _PAGE2_TEMPLATE_PATH = os.path.join(_TEMPLATES_DIR, "NucleaReport2ndPage.pdf")
 _PAGE3_TEMPLATE_PATH = os.path.join(_TEMPLATES_DIR, "NucleaReport3rdPage.pdf")
+_APPROVED_TEMPLATE_PATH = os.path.join(_TEMPLATES_DIR, "NucleaReportApproved.pdf")
+_WAITING_TEMPLATE_PATH = os.path.join(_TEMPLATES_DIR, "NucleaReportWaitingApprove.pdf")
+_FIX_OTHERS_TEMPLATE_PATH = os.path.join(_TEMPLATES_DIR, "NucleaReportFixAndOthers.pdf")
+_LAST_PAGE_TEMPLATE_PATH = os.path.join(_TEMPLATES_DIR, "NucleaReportLastPage.pdf")
 
 # Page size: same as templates
 PAGE_W = 1440.0
@@ -173,14 +177,14 @@ def _draw_entregas_table_on_template(entregas_sorted, escopo_df, styles):
     return [template_page]
 
 
-def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
+def _draw_task_pages_on_template(task, entrega_date, anexos, styles, template_path=None, tag_label=""):
     """
-    Creates task media pages using NucleaReport3rdPage.pdf as base:
-    - Adds task title higher up, in light gray
-    - Adds entrega date below/next to "Entregue em:", also light gray
-    - Adds "Arquivos Anexados (Aprovados):" section and media grid
+    Creates task media pages using a template PDF as base.
     """
     pages = []
+    
+    if not template_path:
+        template_path = _PAGE3_TEMPLATE_PATH
 
     # Load styles
     section_style = ParagraphStyle(
@@ -197,14 +201,13 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
         alignment=TA_CENTER
     )
 
-    # Split media into chunks (2 cols x 2 rows per page = 4 items per page)
-    # Aumentando o tamanho das thumbs em ~50%
-    GRID_COLS = 2
-    GRID_ROWS = 2
+    # Split media into chunks (3 cols x 3 rows per page = 9 items per page)
+    GRID_COLS = 3
+    GRID_ROWS = 3
     PAGE_SIZE = GRID_COLS * GRID_ROWS
 
     cell_width = (PAGE_W - L_MARGIN - R_MARGIN) / GRID_COLS
-    cell_height = 2.85 * inch # Aumentado de 1.9 para 2.85 (50%)
+    cell_height = 1.9 * inch # Adjusted to fit 3 rows nicely
 
     # Style for wrapped title
     title_style = ParagraphStyle(
@@ -223,7 +226,7 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
 
     for chunk_idx, page_anexos in enumerate(anexos_chunks):
         # Get template page
-        template_page = pypdf.PdfReader(_PAGE3_TEMPLATE_PATH).pages[0]
+        template_page = pypdf.PdfReader(template_path).pages[0]
 
         # Create overlay
         overlay_buf = io.BytesIO()
@@ -252,10 +255,11 @@ def _draw_task_pages_on_template(task, entrega_date, anexos, styles):
         c.setFillColorRGB(0.4, 0.4, 0.4)
         c.drawString(L_MARGIN + 146, 697, entrega_date)
 
-        # "Arquivos Anexados (Aprovados):"
+        # "Arquivos Anexados ({tag_label}):"
+        label = f"Arquivos Anexados ({tag_label}):" if tag_label else "Arquivos Anexados:"
         c.setFont("Helvetica-Bold", 14)
         c.setFillColorRGB(0.2, 0.2, 0.2)
-        c.drawString(L_MARGIN, 600, "Arquivos Anexados (Aprovados):")
+        c.drawString(L_MARGIN, 600, label)
 
         # Draw grid - Always starts at the same Y for alignment
         current_y = 580 
@@ -404,32 +408,63 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
         # Se não tiver tag, assume o mês da tarefa
         return task_month
 
-    # Filtra e classifica os anexos que pertencem ao mês selecionado
-    anexos_por_task = {}
-    correcoes_por_task = {}
+    def get_main_tag(anexo):
+        # Tags prioritárias para segmentação do relatório
+        priority_tags = ["aprovado", "aguardando_aprovacao", "correcao"]
+        tags_data = anexo.get("tags_data")
+        if isinstance(tags_data, list):
+            names = [str(t.get("name", "")).lower() for t in tags_data]
+            for pt in priority_tags:
+                if pt in names:
+                    return pt
+            # Se tiver outras tags, retorna a primeira não prioritária
+            if names:
+                # Tenta filtrar a tag de competência (MM/YYYY) para não usá-la como label principal
+                other_tags = [n for n in names if not re.match(r'\d{2}/\d{4}', n)]
+                if other_tags:
+                    return other_tags[0]
+        return "correcao" # Fallback se não tiver tag ou apenas tag de data
+
+    def format_tag_label(tag_name):
+        if not tag_name: return ""
+        # Regras de capitalização PT-BR
+        words = tag_name.replace("_", " ").split()
+        capitalized = []
+        for i, word in enumerate(words):
+            # Siglas em maiúsculo, preposições em minúsculo, resto Title Case
+            if word.upper() in ["TI", "RH", "ID", "URL", "PDF"]:
+                capitalized.append(word.upper())
+            elif word.lower() in ["de", "do", "da", "dos", "das", "e", "em", "para", "com"] and i > 0:
+                capitalized.append(word.lower())
+            else:
+                capitalized.append(word.capitalize())
+        return " ".join(capitalized)
+
+    # Agrupadores por tag (fileiras)
+    # Estrutura: { tag_name: { task_id: [anexos] } }
+    fileiras = {
+        "aprovado": {},
+        "aguardando_aprovacao": {},
+        "correcao": {} # Aqui entram 'correcao' e tags não listadas
+    }
     
     for a in todos_anexos_aprovados:
         tid = int(a.get("task_id") or 0)
         task_month = task_mes_ano_dict.get(tid)
-        
-        # Ignora se a tarefa não possui entregas mapeadas
-        if not task_month:
-            continue
+        if not task_month: continue
             
         file_month = get_file_competence_yyyy_mm(a, task_month)
         
         # Só incluímos no relatório se a competência do arquivo bater com o mês selecionado
         if file_month == mes_ano:
-            is_correcao = (task_month != mes_ano)
+            main_tag = get_main_tag(a)
             
-            if is_correcao:
-                if tid not in correcoes_por_task:
-                    correcoes_por_task[tid] = []
-                correcoes_por_task[tid].append(a)
-            else:
-                if tid not in anexos_por_task:
-                    anexos_por_task[tid] = []
-                anexos_por_task[tid].append(a)
+            # Determina em qual fileira o anexo entra
+            target_fileira = main_tag if main_tag in ["aprovado", "aguardando_aprovacao"] else "correcao"
+            
+            if tid not in fileiras[target_fileira]:
+                fileiras[target_fileira][tid] = []
+            fileiras[target_fileira][tid].append(a)
 
     # 4. Prepare styles
     styles = getSampleStyleSheet()
@@ -446,51 +481,41 @@ def gerar_pdf_status(mes_ano, escopo_df, entregas_df):
     for page in page2_pages:
         writer.add_page(page)
 
-    # Add task media pages
-    ordered_task_ids = entregas_sorted["task_id"].dropna().unique().tolist()
-    ordered_task_ids = [int(tid) for tid in ordered_task_ids]
+    # 6. Processar as fileiras na ordem definida
     task_map = {t["id"]: t for t in gestao_tasks}
-    tasks_alvo_sorted = [task_map[tid] for tid in ordered_task_ids if tid in task_map]
+    
+    # Ordem das fileiras e seus respectivos templates
+    config_fileiras = [
+        ("aprovado", _APPROVED_TEMPLATE_PATH),
+        ("aguardando_aprovacao", _WAITING_TEMPLATE_PATH),
+        ("correcao", _FIX_OTHERS_TEMPLATE_PATH)
+    ]
 
-    for task in tasks_alvo_sorted:
-        entrega_date = task_dates_dict.get(task["id"], "Data não disponível")
-        anexos = anexos_por_task.get(task["id"], [])
-
-        # Se a task não tiver anexos aprovados para este mês, criamos um placeholder
-        # para manter a padronização visual das páginas (página numerada do template).
-        # Caso contrário, gera as páginas com grade de mídias.
-        if not anexos:
-            # Gera uma página do template apenas com o cabeçalho (sem grade de anexos)
-            task_pages = _draw_task_pages_on_template(task, entrega_date, [], styles)
-        else:
-            task_pages = _draw_task_pages_on_template(task, entrega_date, anexos, styles)
-
-        for page in task_pages:
-            writer.add_page(page)
-
-    # Add corrections (tasks from other months, but with attachments this month)
-    if correcoes_por_task:
-        # Use a simple page for Correções title (no template needed here)
-        title_overlay_buf = io.BytesIO()
-        c = canvas.Canvas(title_overlay_buf, pagesize=(PAGE_W, PAGE_H))
-        c.setFont("Helvetica-Bold", 28)
-        c.setFillColorRGB(0.102, 0.102, 0.102)
-        c.drawCentredString(PAGE_W / 2, PAGE_H - 200, "Correções (Casos de Mídia)")
-        c.setFont("Helvetica", 14)
-        c.setFillColorRGB(0.33, 0.33, 0.33)
-        c.drawCentredString(PAGE_W / 2, PAGE_H - 240, "Entregas aprovadas em momentos distintos que pertencem a este mês.")
-        c.showPage()
-        c.save()
-        title_overlay_buf.seek(0)
-        writer.add_page(pypdf.PdfReader(title_overlay_buf).pages[0])
-
-        for tid, a_list in correcoes_por_task.items():
+    for tag_name, template_path in config_fileiras:
+        tasks_da_fileira = fileiras[tag_name]
+        if not tasks_da_fileira:
+            continue
+            
+        # Ordenação interna: Ordenar tasks pelo ID (ou data se preferir)
+        # E anexos dentro da task pelo nome
+        sorted_tids = sorted(tasks_da_fileira.keys())
+        tag_label = format_tag_label(tag_name)
+        
+        for tid in sorted_tids:
             task = task_map.get(tid, {"id": tid, "title": f"Task #{tid}"})
             entrega_date = task_dates_dict.get(tid, "Data não disponível")
+            anexos = sorted(tasks_da_fileira[tid], key=lambda x: str(x.get("name", "")).lower())
             
-            task_pages = _draw_task_pages_on_template(task, entrega_date, a_list, styles)
+            task_pages = _draw_task_pages_on_template(task, entrega_date, anexos, styles, 
+                                                     template_path=template_path, 
+                                                     tag_label=tag_label)
             for page in task_pages:
                 writer.add_page(page)
+
+    # 7. Adicionar página final estática
+    if os.path.exists(_LAST_PAGE_TEMPLATE_PATH):
+        last_reader = pypdf.PdfReader(_LAST_PAGE_TEMPLATE_PATH)
+        writer.add_page(last_reader.pages[0])
 
     final_buffer = io.BytesIO()
     writer.write(final_buffer)
