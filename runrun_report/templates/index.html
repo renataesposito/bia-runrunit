@@ -137,6 +137,7 @@
     <div class="view-toggle">
       <button id="btn-view-anual" class="active" onclick="setView('anual')">Anual</button>
       <button id="btn-view-mensal" onclick="setView('mensal')">Mensal</button>
+      <button id="btn-view-ctd" onclick="setView('ctd')">CTD</button>
     </div>
     <div id="sync-status" class="sync-status d-flex align-items-center" style="margin-left: 15px; font-size: 11px; color: #aaa; gap: 10px;">
       <span id="sync-badge" class="badge bg-secondary">Atualizado</span>
@@ -149,158 +150,256 @@
 
 <div class="content-wrap">
 
-  <!-- Alerta de entregas não mapeadas -->
-  <div id="alert-unmapped" class="alert alert-warning alert-dismissible py-2 mb-3" role="alert">
-    <strong>⚠ Atenção:</strong> <span id="alert-unmapped-msg"></span>
-    Verifique se o nome da tag no RunRun.it coincide com o ENTREGÁVEL no Excel.
-    <button type="button" class="btn-close" onclick="this.parentElement.style.display='none'"></button>
-  </div>
+  <!-- ==================== VIEW ANUAL / MENSAL ==================== -->
+  <div id="anual-mensal-view">
+    <!-- Alerta de entregas não mapeadas -->
+    <div id="alert-unmapped" class="alert alert-warning alert-dismissible py-2 mb-3" role="alert">
+      <strong>⚠ Atenção:</strong> <span id="alert-unmapped-msg"></span>
+      Verifique se o nome da tag no RunRun.it coincide com o ENTREGÁVEL no Excel.
+      <button type="button" class="btn-close" onclick="this.parentElement.style.display='none'"></button>
+    </div>
 
-  <!-- KPI cards -->
-  <div class="row g-3 mb-3">
-    <div class="col-md-3">
-      <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-        <p class="kpi-title">Tarefas Pendentes no Mês</p>
-        <div class="kpi-value" id="kpi-saldo" style="color:#1A1A1A">—</div>
-        <small class="kpi-sub">itens restantes no período</small>
-      </div></div>
-    </div>
-    <div class="col-md-3">
-      <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-        <p class="kpi-title">Entregas Realizadas</p>
-        <div class="kpi-value" id="kpi-realizado" style="color:#1A1A1A">—</div>
-        <small class="kpi-sub">registradas via comentário</small>
-      </div></div>
-    </div>
-    <div class="col-md-3">
-      <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-        <p class="kpi-title">% de Realização</p>
-        <div class="kpi-value" id="kpi-pct" style="color:#1A1A1A">—</div>
-        <small class="kpi-sub">realizado / previsto acumulado</small>
-      </div></div>
-    </div>
-    <div class="col-md-3">
-      <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-        <p class="kpi-title">Tarefas por Mês</p>
-        <div class="kpi-value" id="kpi-tempo" style="color:#1A1A1A">—</div>
-        <small class="kpi-sub" id="kpi-tempo-sub">previsto no período</small>
-      </div></div>
-    </div>
-  </div>
-
-  <!-- Filtros - Visão Anual -->
-  <div class="card panel mb-3" id="filtros-anual">
-    <div class="card-body">
-      <div class="row g-2 align-items-end">
-        <div class="col-md-2">
-          <label class="form-label small fw-bold mb-1" for="f-ini">De</label>
-          <input type="date" id="f-ini" class="form-control form-control-sm" value="2026-03-01">
-        </div>
-        <div class="col-md-2">
-          <label class="form-label small fw-bold mb-1" for="f-fim">Até</label>
-          <input type="date" id="f-fim" class="form-control form-control-sm">
-        </div>
-        <div class="col-md-4">
-          <label class="form-label small fw-bold mb-1" for="f-grupo">Grupo / Tipo de Entregável</label>
-          <select id="f-grupo" class="form-select form-select-sm">
-            <option value="">Todos os grupos</option>
-          </select>
-        </div>
-        <div class="col-md-4 d-flex align-items-end justify-content-end">
-          <button class="btn btn-sm" id="btn-exp">⬇ Exportar Excel</button>
-        </div>
+    <!-- KPI cards -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">Tarefas Pendentes no Mês</p>
+          <div class="kpi-value" id="kpi-saldo" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub">itens restantes no período</small>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">Entregas Realizadas</p>
+          <div class="kpi-value" id="kpi-realizado" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub">registradas via comentário</small>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">% de Realização</p>
+          <div class="kpi-value" id="kpi-pct" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub">realizado / previsto acumulado</small>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">Tarefas por Mês</p>
+          <div class="kpi-value" id="kpi-tempo" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub" id="kpi-tempo-sub">previsto no período</small>
+        </div></div>
       </div>
     </div>
-  </div>
 
-  <!-- Filtros - Visão Mensal -->
-  <div class="card panel mb-3" id="filtros-mensal" style="display:none">
-    <div class="card-body">
-      <div class="row g-2 align-items-end">
-        <div class="col-md-3">
-          <label class="form-label small fw-bold mb-1" for="f-ano">Ano</label>
-          <select id="f-ano" class="form-select form-select-sm">
-            <option value="">Selecione...</option>
-          </select>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label small fw-bold mb-1">Mês</label>
-          <div class="month-buttons" id="month-buttons">
-            <!-- Botões gerados via JS -->
+    <!-- Filtros - Visão Anual -->
+    <div class="card panel mb-3" id="filtros-anual">
+      <div class="card-body">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-2">
+            <label class="form-label small fw-bold mb-1" for="f-ini">De</label>
+            <input type="date" id="f-ini" class="form-control form-control-sm" value="2026-03-01">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small fw-bold mb-1" for="f-fim">Até</label>
+            <input type="date" id="f-fim" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-bold mb-1" for="f-grupo">Grupo / Tipo de Entregável</label>
+            <select id="f-grupo" class="form-select form-select-sm">
+              <option value="">Todos os grupos</option>
+            </select>
+          </div>
+          <div class="col-md-4 d-flex align-items-end justify-content-end">
+            <button class="btn btn-sm" id="btn-exp">⬇ Exportar Excel</button>
           </div>
         </div>
-        <div class="col-md-3">
-          <label class="form-label small fw-bold mb-1" for="f-grupo-mensal">Grupo</label>
-          <select id="f-grupo-mensal" class="form-select form-select-sm">
-            <option value="">Todos os grupos</option>
-          </select>
+      </div>
+    </div>
+
+    <!-- Filtros - Visão Mensal -->
+    <div class="card panel mb-3" id="filtros-mensal" style="display:none">
+      <div class="card-body">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label small fw-bold mb-1" for="f-ano">Ano</label>
+            <select id="f-ano" class="form-select form-select-sm">
+              <option value="">Selecione...</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-bold mb-1">Mês</label>
+            <div class="month-buttons" id="month-buttons">
+              <!-- Botões gerados via JS -->
+            </div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-bold mb-1" for="f-grupo-mensal">Grupo</label>
+            <select id="f-grupo-mensal" class="form-select form-select-sm">
+              <option value="">Todos os grupos</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- Gráficos -->
-  <div class="row g-3 mb-3">
-    <div class="col-md-8">
-      <div class="chart-wrap">
-        <div id="g-escopo"></div>
+    <!-- Gráficos -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-8">
+        <div class="chart-wrap">
+          <div id="g-escopo"></div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="chart-wrap">
+          <div id="g-mensal"></div>
+        </div>
       </div>
     </div>
-    <div class="col-md-4">
-      <div class="chart-wrap">
-        <div id="g-mensal"></div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Tabela: Escopo com Progresso -->
-  <div class="card panel mb-3">
-    <div class="card-body">
-      <p class="sec-title mb-2">Escopo Contratado — Previsto x Realizado</p>
-      <div class="table-responsive" style="max-height:480px;overflow-y:auto">
-        <table class="table table-sm table-bordered mb-0">
-          <thead style="position:sticky;top:0;z-index:1">
-            <tr>
-              <th class="sortable" onclick="sortEscopo('grupo')">Grupos <span id="srt-grupo"></span></th>
-              <th class="sortable" onclick="sortEscopo('entregavel')">Entregáveis <span id="srt-entregavel"></span></th>
-              <th id="th-mes-prev" class="text-center sortable" onclick="sortEscopo('qtd_mes')" style="display:none">Previsto Qtd/Mês <span id="srt-qtd_mes"></span></th>
-              <th id="th-ano-prev" class="text-center sortable" onclick="sortEscopo('qtd_ano')">Previsto Qtd/Ano <span id="srt-qtd_ano"></span></th>
-              <th id="th-mes-real" class="text-center sortable" onclick="sortEscopo('realizado_mes')" style="display:none">Realizado Qtd/Mês <span id="srt-realizado_mes"></span></th>
-              <th id="th-ano-real" class="text-center sortable" onclick="sortEscopo('realizado_ano')">Realizado Qtd/Ano <span id="srt-realizado_ano"></span></th>
-              <th class="sortable" style="min-width:140px" onclick="sortEscopo('progresso')">Progresso <span id="srt-progresso"></span></th>
-            </tr>
-          </thead>
-          <tbody id="t-escopo-body"></tbody>
-        </table>
+    <!-- Tabela: Escopo com Progresso -->
+    <div class="card panel mb-3">
+      <div class="card-body">
+        <p class="sec-title mb-2">Escopo Contratado — Previsto x Realizado</p>
+        <div class="table-responsive" style="max-height:480px;overflow-y:auto">
+          <table class="table table-sm table-bordered mb-0">
+            <thead style="position:sticky;top:0;z-index:1">
+              <tr>
+                <th class="sortable" onclick="sortEscopo('grupo')">Grupos <span id="srt-grupo"></span></th>
+                <th class="sortable" onclick="sortEscopo('entregavel')">Entregáveis <span id="srt-entregavel"></span></th>
+                <th id="th-mes-prev" class="text-center sortable" onclick="sortEscopo('qtd_mes')" style="display:none">Previsto Qtd/Mês <span id="srt-qtd_mes"></span></th>
+                <th id="th-ano-prev" class="text-center sortable" onclick="sortEscopo('qtd_ano')">Previsto Qtd/Ano <span id="srt-qtd_ano"></span></th>
+                <th id="th-mes-real" class="text-center sortable" onclick="sortEscopo('realizado_mes')" style="display:none">Realizado Qtd/Mês <span id="srt-realizado_mes"></span></th>
+                <th id="th-ano-real" class="text-center sortable" onclick="sortEscopo('realizado_ano')">Realizado Qtd/Ano <span id="srt-realizado_ano"></span></th>
+                <th class="sortable" style="min-width:140px" onclick="sortEscopo('progresso')">Progresso <span id="srt-progresso"></span></th>
+              </tr>
+            </thead>
+            <tbody id="t-escopo-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Tabela: Histórico de Entregas -->
-  <div class="card panel mb-4">
-    <div class="card-body">
-      <p class="sec-title mb-2">Histórico de Entregas (comentários)</p>
-      <div class="table-responsive" style="max-height:420px;overflow-y:auto">
-        <table class="table table-sm table-bordered mb-0">
-          <thead style="position:sticky;top:0;z-index:1">
-            <tr>
-              <th class="sortable" onclick="sortHist('data')">Data <span id="hsrt-data"></span></th>
-              <th class="sortable" onclick="sortHist('mes_ano')">Mês/Ano <span id="hsrt-mes_ano"></span></th>
-              <th class="sortable" onclick="sortHist('grupo')">Grupo <span id="hsrt-grupo"></span></th>
-              <th class="sortable" onclick="sortHist('projeto')">Projeto <span id="hsrt-projeto"></span></th>
-              <th class="sortable" onclick="sortHist('entregavel')">Entregável <span id="hsrt-entregavel"></span></th>
-              <th class="text-center sortable" onclick="sortHist('quantidade')">Qtd <span id="hsrt-quantidade"></span></th>
-              <th class="text-center sortable" onclick="sortHist('mapeado')">Mapeado <span id="hsrt-mapeado"></span></th>
-            </tr>
-          </thead>
-          <tbody id="t-hist-body"></tbody>
-        </table>
-        <p id="t-hist-empty" class="text-muted text-center py-3 mb-0" style="display:none">
-          Nenhuma entrega registrada no período.
-        </p>
+    <!-- Tabela: Histórico de Entregas -->
+    <div class="card panel mb-4">
+      <div class="card-body">
+        <p class="sec-title mb-2">Histórico de Entregas (comentários)</p>
+        <div class="table-responsive" style="max-height:420px;overflow-y:auto">
+          <table class="table table-sm table-bordered mb-0">
+            <thead style="position:sticky;top:0;z-index:1">
+              <tr>
+                <th class="sortable" onclick="sortHist('data')">Data <span id="hsrt-data"></span></th>
+                <th class="sortable" onclick="sortHist('mes_ano')">Mês/Ano <span id="hsrt-mes_ano"></span></th>
+                <th class="sortable" onclick="sortHist('grupo')">Grupo <span id="hsrt-grupo"></span></th>
+                <th class="sortable" onclick="sortHist('projeto')">Projeto <span id="hsrt-projeto"></span></th>
+                <th class="sortable" onclick="sortHist('entregavel')">Entregável <span id="hsrt-entregavel"></span></th>
+                <th class="text-center sortable" onclick="sortHist('quantidade')">Qtd <span id="hsrt-quantidade"></span></th>
+                <th class="text-center sortable" onclick="sortHist('mapeado')">Mapeado <span id="hsrt-mapeado"></span></th>
+              </tr>
+            </thead>
+            <tbody id="t-hist-body"></tbody>
+          </table>
+          <p id="t-hist-empty" class="text-muted text-center py-3 mb-0" style="display:none">
+            Nenhuma entrega registrada no período.
+          </p>
+        </div>
       </div>
     </div>
-  </div>
+  </div> <!-- /anual-mensal-view -->
+
+  <!-- ==================== VIEW CTD ==================== -->
+  <div id="ctd-view" style="display:none;">
+    <!-- KPI cards CTD -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100" id="card-ctd-saude"><div class="card-body">
+          <p class="kpi-title">Saúde do Contrato</p>
+          <div class="kpi-value" id="ctd-saude-val">—</div>
+          <small class="kpi-sub" id="ctd-saude-sub">Status geral</small>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">Tipos em Risco</p>
+          <div class="kpi-value" id="ctd-risco-val" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub">Entregáveis atrasados</small>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">Dias Restantes</p>
+          <div class="kpi-value" id="ctd-dias-val" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub" id="ctd-dias-sub">Até fim do contrato</small>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">Progresso CTD</p>
+          <div class="kpi-value" id="ctd-prog-val" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub">Realizado / Contratado</small>
+        </div></div>
+      </div>
+    </div>
+
+    <!-- Gráficos CTD -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-7">
+        <div class="chart-wrap">
+          <div id="g-ctd-barras"></div>
+        </div>
+      </div>
+      <div class="col-md-5">
+        <div class="chart-wrap">
+          <div id="g-ctd-hist"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabela: Ações Recomendadas -->
+    <div class="card panel mb-3 border-danger" id="panel-acoes-rec" style="display:none;">
+      <div class="card-body">
+        <p class="sec-title text-danger mb-2">⚠ Ação Recomendada (Itens em Risco)</p>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Entregável</th>
+                <th class="text-center">Pendentes</th>
+                <th class="text-center">Cooldown</th>
+                <th class="text-center">Dias Mínimos</th>
+                <th class="text-center">Restantes</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="t-ctd-acoes-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabela: Viabilidade Completa -->
+    <div class="card panel mb-4">
+      <div class="card-body">
+        <p class="sec-title mb-2">Viabilidade CTD por Entregável</p>
+        <div class="table-responsive" style="max-height:480px;overflow-y:auto">
+          <table class="table table-sm table-bordered mb-0">
+            <thead style="position:sticky;top:0;z-index:1">
+              <tr>
+                <th>Grupo</th>
+                <th>Entregável</th>
+                <th class="text-center">Pendentes</th>
+                <th class="text-center">Cooldown (dias)</th>
+                <th class="text-center">Mín. Necessário</th>
+                <th class="text-center">Restantes</th>
+                <th class="text-center">Folga</th>
+                <th class="text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody id="t-ctd-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div> <!-- /ctd-view -->
 
 </div><!-- /content-wrap -->
 
@@ -905,6 +1004,10 @@ function setView(view) {
   _currentView = view;
   document.getElementById('btn-view-anual').classList.toggle('active', view === 'anual');
   document.getElementById('btn-view-mensal').classList.toggle('active', view === 'mensal');
+  document.getElementById('btn-view-ctd').classList.toggle('active', view === 'ctd');
+  
+  document.getElementById('anual-mensal-view').style.display = (view === 'anual' || view === 'mensal') ? '' : 'none';
+  document.getElementById('ctd-view').style.display = view === 'ctd' ? '' : 'none';
   
   document.getElementById('filtros-anual').style.display = view === 'anual' ? '' : 'none';
   document.getElementById('filtros-mensal').style.display = view === 'mensal' ? '' : 'none';
@@ -913,7 +1016,10 @@ function setView(view) {
     populateMonthButtons();
   }
   
-  updateTableColumns(view === 'mensal', _selectedMonths.length > 0);
+  if (view === 'anual' || view === 'mensal') {
+    updateTableColumns(view === 'mensal', _selectedMonths.length > 0);
+  }
+  
   update();
 }
 
@@ -1059,8 +1165,10 @@ update = function() {
   if (_currentView === 'anual') {
     updateTableColumns(false, false);
     _originalUpdate();
-  } else {
+  } else if (_currentView === 'mensal') {
     updateMensal();
+  } else if (_currentView === 'ctd') {
+    updateCTD();
   }
 };
 
@@ -1133,6 +1241,166 @@ function updateMensal() {
   renderEscopoTable(escopoR, true, meses.length > 0);
   renderHistTable(ent);
   checkUnmapped(ent);
+}
+
+function updateCTD() {
+  if (!_data || !_data.ctd) return;
+  
+  const ctd = _data.ctd;
+  const saude = ctd.saude;
+  const viabilidade = ctd.viabilidade;
+  
+  // KPIs
+  const cardSaude = document.getElementById('card-ctd-saude');
+  const valSaude = document.getElementById('ctd-saude-val');
+  if (saude.status_geral === 'Verde') {
+    valSaude.textContent = 'Saudável';
+    valSaude.style.color = GREEN;
+    cardSaude.style.borderTopColor = GREEN;
+  } else if (saude.status_geral === 'Amarelo') {
+    valSaude.textContent = 'Atenção';
+    valSaude.style.color = ORANGE;
+    cardSaude.style.borderTopColor = ORANGE;
+  } else {
+    valSaude.textContent = 'Crítico';
+    valSaude.style.color = RED;
+    cardSaude.style.borderTopColor = RED;
+  }
+  
+  document.getElementById('ctd-risco-val').textContent = saude.qtd_em_risco;
+  document.getElementById('ctd-risco-val').style.color = saude.qtd_em_risco > 0 ? RED : GREEN;
+  
+  document.getElementById('ctd-dias-val').textContent = saude.dias_restantes;
+  
+  const totalPrev = _data.kpis.total_contrato;
+  const totalReal = _data.kpis.total_realizado;
+  const progPct = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
+  document.getElementById('ctd-prog-val').textContent = progPct + '%';
+  
+  // Tabela Viabilidade
+  const tbody = document.getElementById('t-ctd-body');
+  tbody.innerHTML = viabilidade.map(v => {
+    let stBadge = '';
+    if (v.status === 'Concluído') stBadge = '<span class="badge bg-success">Concluído</span>';
+    else if (v.status === 'Em Risco') stBadge = '<span class="badge bg-danger">Em Risco</span>';
+    else if (v.status === 'No Prazo') stBadge = '<span class="badge bg-info text-dark">No Prazo</span>';
+    else stBadge = '<span class="badge bg-secondary">N/A</span>';
+    
+    return `<tr>
+      <td>${esc(v.grupo)}</td>
+      <td>${esc(v.entregavel)}</td>
+      <td class="text-center fw-bold">${v.pendentes}</td>
+      <td class="text-center">${v.cooldown_dias}</td>
+      <td class="text-center">${v.dias_minimos}</td>
+      <td class="text-center">${v.dias_restantes}</td>
+      <td class="text-center" style="color:${v.folga < 0 ? RED : BRAND_DARK}">${v.folga}</td>
+      <td class="text-center">${stBadge}</td>
+    </tr>`;
+  }).join('');
+  
+  // Tabela Ações Recomendadas
+  const acoesTbody = document.getElementById('t-ctd-acoes-body');
+  const emRisco = viabilidade.filter(v => v.status === 'Em Risco');
+  if (emRisco.length > 0) {
+    document.getElementById('panel-acoes-rec').style.display = '';
+    acoesTbody.innerHTML = emRisco.map(v => `
+      <tr>
+        <td>${esc(v.entregavel)}</td>
+        <td class="text-center fw-bold">${v.pendentes}</td>
+        <td class="text-center">${v.cooldown_dias}</td>
+        <td class="text-center">${v.dias_minimos}</td>
+        <td class="text-center">${v.dias_restantes}</td>
+        <td><span class="badge bg-danger">Atrasado (${Math.abs(v.folga)} dias de déficit)</span></td>
+      </tr>
+    `).join('');
+  } else {
+    document.getElementById('panel-acoes-rec').style.display = 'none';
+  }
+  
+  // Gráfico de Barras Empilhadas por Ano (2026 vs 2027)
+  renderCTDBarChart();
+  
+  // Gráfico Histórico de Saúde
+  renderCTDHistChart();
+}
+
+function renderCTDBarChart() {
+  const entregas = _data.entregas;
+  const escopo = _data.escopo;
+  
+  let real26 = 0;
+  let real27 = 0;
+  
+  entregas.forEach(e => {
+    if (!e.mapeado) return;
+    if (e.data && e.data.startsWith('2026')) real26 += e.quantidade;
+    if (e.data && e.data.startsWith('2027')) real27 += e.quantidade;
+  });
+  
+  const totalPrev = _data.kpis.total_contrato;
+  const pendentes = Math.max(0, totalPrev - (real26 + real27));
+  
+  const trace26 = {
+    x: ['Entregas CTD'],
+    y: [real26],
+    name: 'Realizado 2026',
+    type: 'bar',
+    marker: { color: BRAND_LIME }
+  };
+  
+  const trace27 = {
+    x: ['Entregas CTD'],
+    y: [real27],
+    name: 'Realizado 2027',
+    type: 'bar',
+    marker: { color: '#0D6EFD' }
+  };
+  
+  const tracePend = {
+    x: ['Entregas CTD'],
+    y: [pendentes],
+    name: 'Pendentes',
+    type: 'bar',
+    marker: { color: '#E7E7E7' }
+  };
+  
+  Plotly.react('g-ctd-barras', [trace26, trace27, tracePend], {
+    barmode: 'stack',
+    title: { text: 'Progresso do Contrato (Volume)', font: { size: 13, family: 'Inter' } },
+    height: 350,
+    margin: { l: 50, r: 20, t: 40, b: 40 },
+    paper_bgcolor: 'white', plot_bgcolor: 'white',
+    font: { family: 'Inter' }
+  }, { responsive: true, displayModeBar: false });
+}
+
+function renderCTDHistChart() {
+  const snaps = _data.ctd_snapshots || [];
+  if (snaps.length === 0) return;
+  
+  const x = snaps.map(s => s.mes_ano);
+  const y = snaps.map(s => s.qtd_em_risco);
+  
+  const trace = {
+    x: x,
+    y: y,
+    type: 'scatter',
+    mode: 'lines+markers',
+    fill: 'tozeroy',
+    line: { color: RED, width: 2 },
+    marker: { size: 6 },
+    name: 'Tipos em Risco'
+  };
+  
+  Plotly.react('g-ctd-hist', [trace], {
+    title: { text: 'Evolução de Entregáveis em Risco', font: { size: 13, family: 'Inter' } },
+    height: 350,
+    margin: { l: 40, r: 20, t: 40, b: 40 },
+    xaxis: { tickangle: -45 },
+    yaxis: { title: 'Qtd. em Risco', dtick: 1 },
+    paper_bgcolor: 'white', plot_bgcolor: 'white',
+    font: { family: 'Inter' }
+  }, { responsive: true, displayModeBar: false });
 }
 
 init();

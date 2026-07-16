@@ -39,6 +39,10 @@ def _load_data_from_db():
     
     _escopo_real = data_processor.escopo_com_realizado(_escopo, _entregas)
     _kpis = data_processor.compute_kpis(_escopo, _entregas)
+    
+    # Gera snapshots CTD se não existirem
+    data_processor.generate_historical_snapshots(_escopo, _entregas)
+    
     print(f"Dados carregados: {len(_escopo)} itens de escopo, {len(_entregas)} entregas")
     return True
 
@@ -197,6 +201,10 @@ def api_data():
     meses_com_dados = data_processor.get_meses_com_dados()
     anos_com_dados = data_processor.get_anos_com_dados()
     
+    # Dados CTD
+    ctd_data = data_processor.compute_ctd_viability(_escopo_real)
+    ctd_snapshots = database.get_health_snapshots()
+    
     return jsonify({
         "kpis": _kpis,
         "escopo": escopo_json,
@@ -204,6 +212,8 @@ def api_data():
         "grupos": grupos,
         "meses_com_dados": meses_com_dados,
         "anos_com_dados": anos_com_dados,
+        "ctd": ctd_data,
+        "ctd_snapshots": ctd_snapshots,
     })
 
 

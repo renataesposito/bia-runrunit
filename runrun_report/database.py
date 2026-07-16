@@ -33,7 +33,19 @@ def init_database():
             qtd_mes INTEGER,
             qtd_ano INTEGER,
             previsto_acumulado INTEGER,
-            slug TEXT UNIQUE
+            slug TEXT UNIQUE,
+            cooldown_dias INTEGER DEFAULT 0
+        )
+    """)
+
+    # Tabela de health_snapshots (CTD)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS health_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mes_ano TEXT UNIQUE,
+            qtd_em_risco INTEGER,
+            status_geral TEXT,
+            detalhes_json TEXT
         )
     """)
 
@@ -144,6 +156,12 @@ def init_database():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entregas_scope_slug ON entregas(scope_slug)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entregas_task_id ON entregas(task_id)")
 
+    # Migrações
+    try:
+        cursor.execute("ALTER TABLE escopo ADD COLUMN cooldown_dias INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass # Coluna já existe
+
     conn.commit()
     conn.close()
 
@@ -178,9 +196,9 @@ def save_escopo(escopo_df: pd.DataFrame):
     # Insere novos dados
     for _, row in escopo_df.iterrows():
         cursor.execute(
-            "INSERT INTO escopo (grupo, entregavel, qtd_mes, qtd_ano, previsto_acumulado, slug) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO escopo (grupo, entregavel, qtd_mes, qtd_ano, previsto_acumulado, slug, cooldown_dias) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (row.get("grupo"), row.get("entregavel"), row.get("qtd_mes"), row.get("qtd_ano"),
-             row.get("previsto_acumulado"), row.get("slug"))
+             row.get("previsto_acumulado"), row.get("slug"), row.get("cooldown_dias", 0))
         )
 
     conn.commit()
@@ -408,6 +426,28 @@ def clear_debug_logs():
 
 
 # ==================== Operações de Configuração ====================
+
+def save_health_snapshot(mes_ano: str, qtd_em_risco: int, status_geral: str, detalhes_json: str):
+    """Salva um snapshot de saúde."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """INSERT OR REPLACE INTO health_snapshots 
+           (mes_ano, qtd_em_risco, status_geral, detalhes_json) 
+           VALUES (?, ?, ?, ?)""",
+        (mes_ano, qtd_em_risco, status_geral, detalhes_json)
+    )
+    conn.commit()
+    conn.close()
+
+def get_health_snapshots() -> list[dict]:
+    """Retorna todos os snapshots de saúde."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM health_snapshots ORDER BY mes_ano ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 def get_config(key: str, default: str = None) -> str:
     """Retorna valor de configuração."""
