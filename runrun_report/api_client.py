@@ -61,25 +61,24 @@ def get_client_id(client_name: str) -> int | None:
 
 
 def get_gestao_tasks(client_id: int) -> list:
-    """Retorna tarefas com prioridade 2"""
-    if FETCH_ALL_TASKS:
-        open_tasks   = _get_paginated("tasks", {"client_id": client_id}, priority=2)
-        closed_tasks = _get_paginated("tasks", {"client_id": client_id, "is_closed": "true"}, priority=2)
-        all_tasks = open_tasks + closed_tasks
-    else:
-        open_tasks   = _get_paginated("tasks", {"client_id": client_id}, priority=2)
-        closed_tasks = _get_paginated("tasks", {"client_id": client_id, "is_closed": "true"}, priority=2)
-        all_tasks = open_tasks + closed_tasks
+    """Retorna tarefas com prioridade 2, filtrando por tipo e título (case-insensitive)."""
+    # Filtro type_id=2017162 confirmado via logs para 'Gestão de Atendimento'
+    task_params = {"client_id": client_id, "type_id": "2017162"}
+    
+    open_tasks   = _get_paginated("tasks", task_params, priority=2)
+    closed_tasks = _get_paginated("tasks", {**task_params, "is_closed": "true"}, priority=2)
+    all_tasks = open_tasks + closed_tasks
 
     unique_tasks = {t["id"]: t for t in all_tasks}.values()
 
-    if FETCH_ALL_TASKS:
-        return list(unique_tasks)
-
-    return [
-        t for t in unique_tasks
-        if str(t.get("title", "")).strip().endswith("- Gestão de Atendimento")
-    ]
+    filtered_tasks = []
+    for t in unique_tasks:
+        title = str(t.get("title", "")).strip()
+        # Filtro por nome case-insensitive para capturar 'Atendimento' ou 'atendimento'
+        if title.lower().endswith("- gestão de atendimento"):
+            filtered_tasks.append(t)
+    
+    return filtered_tasks
 
 
 def get_comments(task_id: int) -> list:

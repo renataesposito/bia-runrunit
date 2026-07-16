@@ -298,13 +298,13 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
             
             if not hashtags_found:
                 has_valid_tag = any(v for v in tag_map.values())
+                task_title = task.get("title") or ""
                 if has_valid_tag:
-                    task_title = task.get("title") or ""
                     if DEBUG_MODE:
-                        add_ignored_item("task", str(task_id), f"Tarefa '{task_title}' tem tags mapeadas mas comentário sem quantidade")
+                        add_ignored_item("task", str(task_id), f"Tarefa '{task_title}' tem tags mapeadas mas comentário sem quantidade", task_id=str(task_id), task_name=task_title)
                 else:
                     if DEBUG_MODE:
-                        add_ignored_item("comment", str(comment.get("id")), "Comentário sem hashtag de entrega", comment_text=text)
+                        add_ignored_item("comment", str(comment.get("id")), "Comentário sem hashtag de entrega", comment_text=text, task_id=str(task_id), task_name=task_title)
                 ignored_count += 1
                 continue
 
@@ -316,7 +316,8 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
                 
                 if not scope_slug:
                     if DEBUG_MODE:
-                        add_ignored_item("hashtag", comment_slug, f"Hashtag '#{comment_slug}' não mapeada ao escopo", comment_text=text)
+                        task_title = task.get("title") or ""
+                        add_ignored_item("hashtag", comment_slug, f"Hashtag '#{comment_slug}' não mapeada ao escopo", comment_text=text, task_id=str(task_id), task_name=task_title)
                     ignored_count += 1
                 
                 rows.append({
@@ -393,7 +394,7 @@ def log_api_request(endpoint: str, params: dict, status: str, duration_ms: int, 
         database.log_debug_request(endpoint, params, status, duration_ms, records_count, ignored_reason)
 
 
-def add_ignored_item(item_type: str, item_id: str, reason: str, comment_text: str = None):
+def add_ignored_item(item_type: str, item_id: str, reason: str, comment_text: str = None, task_id: str = None, task_name: str = None):
     """Adiciona um item ignorado à lista."""
     global _ignored_items
     
@@ -402,13 +403,20 @@ def add_ignored_item(item_type: str, item_id: str, reason: str, comment_text: st
         "id": item_id,
         "reason": reason,
         "comment_text": comment_text,
+        "task_id": task_id,
+        "task_name": task_name
     }
     _ignored_items.append(ignored_entry)
     
     if DEBUG_MODE:
         params = {"id": item_id}
         if comment_text:
-            params["comment_text"] = comment_text
+            # Limita comentário a 200 caracteres conforme solicitado
+            params["comment_text"] = (comment_text[:197] + "...") if len(comment_text) > 200 else comment_text
+        if task_id:
+            params["task_id"] = task_id
+        if task_name:
+            params["task_name"] = task_name
             
         database.log_debug_request(
             endpoint=f"ignored_{item_type}",

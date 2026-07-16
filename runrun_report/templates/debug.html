@@ -217,12 +217,34 @@
             <tr>
               <th>Timestamp</th>
               <th>Tipo</th>
-              <th>ID/Identificador</th>
-              <th>Comentário Original</th>
+              <th>Task ID</th>
+              <th>Nome da Task</th>
+              <th style="width: 200px;">Comentário (Máx 200)</th>
               <th>Motivo</th>
             </tr>
           </thead>
           <tbody id="t-ignored-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabela de Tasks com Entregáveis mas sem Arquivos (Órfãos no PDF) -->
+  <div class="card panel mb-3">
+    <div class="card-body">
+      <p class="sec-title mb-2 text-danger">⚠ Tasks no Dashboard sem Arquivos (Órfãos no PDF)</p>
+      <div class="table-responsive" style="max-height:300px;overflow-y:auto">
+        <table class="table table-sm table-bordered mb-0">
+          <thead style="position:sticky;top:0;z-index:1">
+            <tr>
+              <th>Data Entrega</th>
+              <th>Task ID</th>
+              <th>Projeto</th>
+              <th>Grupo</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="t-orphan-tasks-body"></tbody>
         </table>
       </div>
     </div>
@@ -244,12 +266,38 @@ async function init() {
   await loadStatus();
   await loadLogs();
   await loadIgnored();
+  await loadOrphanTasks();
   await loadQueueData();
   await loadMesesPdf();
   document.getElementById('loading').style.display = 'none';
   
   // Atualiza os dados da fila a cada 3 segundos
   setInterval(loadQueueData, 3000);
+}
+
+async function loadOrphanTasks() {
+  try {
+    const res = await fetch('/api/debug/orphan-tasks');
+    const tasks = await res.json();
+    const tbody = document.getElementById('t-orphan-tasks-body');
+    
+    if (!tasks.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">Nenhuma task órfã identificada</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = tasks.map(t => `
+      <tr>
+        <td>${t.data_entrega}</td>
+        <td><a href="https://runrun.it/tasks/${t.task_id}" target="_blank">${t.task_id}</a></td>
+        <td>${t.projeto}</td>
+        <td>${t.grupo}</td>
+        <td><span class="badge bg-danger">Sem Anexos Válidos</span></td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('Erro ao carregar tasks órfãs:', err);
+  }
 }
 
 async function loadMesesPdf() {
@@ -424,7 +472,7 @@ async function loadIgnored() {
 function renderIgnored() {
   const tbody = document.getElementById('t-ignored-body');
   if (!_ignored.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">Nenhum item ignorado</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">Nenhum item ignorado</td></tr>';
     return;
   }
   
@@ -433,28 +481,19 @@ function renderIgnored() {
     const type = item.endpoint ? item.endpoint.replace('ignored_', '') : '-';
     
     let commentText = '-';
-    let idOrParams = item.params || '-';
+    let taskId = item.task_id || '-';
+    let taskName = item.task_name || '-';
     
     if (item.params) {
       try {
-        // Tenta fazer o parse do JSON dos parâmetros
         let parsed = JSON.parse(item.params);
         if (parsed.comment_text) {
           commentText = parsed.comment_text;
         }
-        idOrParams = parsed.id || item.params;
+        if (parsed.task_id) taskId = parsed.task_id;
+        if (parsed.task_name) taskName = parsed.task_name;
       } catch(e) {
-        // Se falhar (log legado usando str(params) em Python), tenta contornar
-        try {
-          let safeJson = item.params.replace(/'/g, '"');
-          let parsed = JSON.parse(safeJson);
-          if (parsed.comment_text) {
-            commentText = parsed.comment_text;
-          }
-          idOrParams = parsed.id || item.params;
-        } catch(e2) {
-          // Mantém o comportamento original
-        }
+        // Fallback para logs legados
       }
     }
     
@@ -462,8 +501,9 @@ function renderIgnored() {
       <tr>
         <td>${timestamp}</td>
         <td>${type}</td>
-        <td>${idOrParams}</td>
-        <td>${commentText}</td>
+        <td>${taskId}</td>
+        <td><small>${taskName}</small></td>
+        <td><small>${commentText}</small></td>
         <td>${item.ignored_reason || '-'}</td>
       </tr>
     `;

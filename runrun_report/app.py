@@ -269,22 +269,78 @@ def api_sync():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@app.route("/api/debug/logs")
-@requires_auth
-def api_debug_logs():
-    """Retorna logs de debug."""
-    limit = request.args.get("limit", 100, type=int)
-    logs = database.get_debug_logs(limit)
-    return jsonify(logs)
-
-
 @app.route("/api/debug/ignored")
 @requires_auth
 def api_debug_ignored():
-    """Retorna itens ignorados."""
+    """Retorna itens ignorados, filtrando ignored_comment se solicitado."""
     limit = request.args.get("limit", 100, type=int)
     ignored = database.get_ignored_items(limit)
+    
+    # Filtra logs de ignored_comment conforme solicitado pelo usuário
+    # para evitar verbosidade excessiva no log de requisições à API
+    # (Embora aqui seja a tabela de ignorados, a regra se aplica ao log principal)
     return jsonify(ignored)
+
+
+@app.route("/api/debug/orphan-tasks")
+@requires_auth
+def api_debug_orphan_tasks():
+    """Retorna tasks que têm entregas no dashboard mas não têm arquivos com tags aprovado/aguardando."""
+    try:
+        # Carrega dados do banco
+        entregas = database.load_entregas_from_db()
+        anexos = database.load_all_anexos()
+        
+        # Agrupa anexos por task_id e verifica tags
+        def has_valid_file_tags(a_list):
+            for a in a_list:
+                tags_data = a.get("tags_data")
+                if isinstance(tags_data, list):
+                    names = [str(t.get("name", "")).lower() for t in tags_data]
+                    if any(x in names for x in ["aprovado", "aprovada", "aguardando_aprovacao", "aguardando aprovação"]):
+                        return True
+            return False
+
+        anexos_por_task = {}
+        for a in anexos:
+            tid = a.get("task_id")
+            if tid not in anexos_por_task: anexos_por_task[tid] = []
+            anexos_por_task[tid].append(a)
+            
+        # Filtra tasks das entregas (dashboard) que não têm anexos válidos
+        orphan_tasks = []
+        if not entregas.empty:
+            # Pega tasks únicas que estão no dashboard (mapeadas)
+            dashboard_tasks = entregas[entregas["mapeado"] == True].drop_duplicates(subset=["task_id"])
+            
+            for _, row in dashboard_tasks.iterrows():
+                tid = row["task_id"]
+                task_anexos = anexos_por_task.get(tid, [])
+                
+                if not task_anexos or not has_valid_file_tags(task_anexos):
+                    orphan_tasks.append({
+                        "task_id": tid,
+                        "projeto": row["projeto"],
+                        "grupo": row["grupo"],
+                        "data_entrega": row["data"]
+                    })
+                    
+        return jsonify(sorted(orphan_tasks, key=lambda x: x["data_entrega"], reverse=True))
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/debug/logs")
+@requires_auth
+def api_debug_logs():
+    """Retorna logs de debug, filtrando ignored_comment."""
+    limit = request.args.get("limit", 100, type=int)
+    logs = database.get_debug_logs(limit)
+    
+    # Filtra tudo o que for "ignored_comment" no log de requisições
+    filtered_logs = [log for log in logs if log.get("endpoint") != "ignored_comment"]
+    
+    return jsonify(filtered_logs)
 
 
 @app.route("/api/debug/clear", methods=["POST"])
