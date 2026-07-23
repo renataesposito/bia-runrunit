@@ -49,6 +49,13 @@ def _slug(text: str) -> str:
     return text
 
 
+def _slug_base(slug: str) -> str:
+    """Parte do slug antes do sufixo de grupo (usado quando há colisão)."""
+    if not slug or "__" not in slug:
+        return slug
+    return slug.split("__", 1)[0]
+
+
 def _meses_decorridos() -> float:
     hoje = date.today()
     delta = (hoje.year - DATA_INICIO.year) * 12 + (hoje.month - DATA_INICIO.month)
@@ -59,18 +66,17 @@ def load_escopo() -> pd.DataFrame:
     """Lê a aba PROD do Excel e calcula previsto acumulado."""
     df = pd.read_excel(EXCEL_PATH, sheet_name="PROD")
     df = df.iloc[:, 1:]  # descarta coluna de índice vazia
-    
-    # Suporte para a coluna cooldown_dias
-    if "Cooldown (dias)" in df.columns:
-        df.rename(columns={"Cooldown (dias)": "cooldown_dias"}, inplace=True)
-    elif "cooldown_dias" not in df.columns:
-        # Pega as 4 primeiras colunas caso o header mude, e adiciona cooldown_dias se não existir
-        pass
 
     cols = list(df.columns)
     if len(cols) >= 4:
         df = df.rename(columns={cols[0]: "grupo", cols[1]: "entregavel", cols[2]: "qtd_mes", cols[3]: "qtd_ano"})
-    
+
+    # Captura a 5ª coluna (cooldown_dias) quando o header do Excel veio como "Unnamed: N"
+    if len(cols) >= 5 and "cooldown_dias" not in df.columns:
+        extra = cols[4]
+        if str(extra).startswith("Unnamed:") or str(extra).strip().lower() == "cooldown_dias":
+            df = df.rename(columns={extra: "cooldown_dias"})
+
     if "cooldown_dias" not in df.columns:
         df["cooldown_dias"] = 0
 
@@ -87,6 +93,22 @@ def load_escopo() -> pd.DataFrame:
         axis=1,
     ).astype(int)
     df["slug"] = df["entregavel"].apply(_slug)
+
+    # Dedup de slug: se o mesmo slug de entregável aparece em grupos diferentes,
+    # sufixamos com o slug do grupo para garantir unicidade no banco.
+    contagem = {}
+    grupo_slug = df["grupo"].apply(_slug)
+    slugs_unicos = []
+    for i, s in enumerate(df["slug"].tolist()):
+        if s in contagem:
+            contagem[s] += 1
+            g = grupo_slug.iloc[i] or f"g{i}"
+            slugs_unicos.append(f"{s}__{g}")
+        else:
+            contagem[s] = 1
+            slugs_unicos.append(s)
+    df["slug"] = slugs_unicos
+
     return df.reset_index(drop=True)
 
 
@@ -106,51 +128,65 @@ def _parse_hashtags(text: str) -> list[tuple[str, int]]:
 def _match_tag(tag_slug: str, grupo: str, escopo: pd.DataFrame) -> str | None:
     """
     Casa um slug de tag com um item do escopo (busca em todo o escopo, sem restrição de grupo).
-    1. Tenta match exato.
-    2. Verifica se o slug do entregável é substring do slug da tag (prefixos).
-    3. Tenta match por similaridade de grafia (fuzzy) >= 92%.
+    1. Tenta match exato (contra slug composto OU slug_base).
+    2. Verifica se o slug_base do entregável é substring do slug da tag (prefixos).
+    3. Tenta match por similaridade de grafia (fuzzy) >= 92% contra slug_base.
+    Retorna sempre o slug composto (armazenado em escopo["slug"]).
     """
-    # 1. Match exato
+    base_series = escopo["slug"].apply(_slug_base)
+
+    # 1. Match exato contra slug composto
     exact = escopo[escopo["slug"] == tag_slug]
     if len(exact) == 1:
         return exact.iloc[0]["slug"]
 
-    # 2. Slug do entregável é substring do slug da tag (tag tem prefixo extra)
-    candidates = escopo[escopo["slug"].apply(lambda s: len(s) > 4 and s in tag_slug)]
-    if len(candidates) == 1:
-        return candidates.iloc[0]["slug"]
+    # 1b. Match exato contra slug_base (hashtag corresponde a um entregável cujo slug foi sufixado)
+    exact_base = escopo[base_series == tag_slug]
+    if len(exact_base) == 1:
+        return exact_base.iloc[0]["slug"]
+    if len(exact_base) > 1:
+        grupo_norm = _slug(grupo) if grupo else ""
+        filtered = escopo[(base_series == tag_slug) & (escopo["grupo"].apply(_slug) == grupo_norm)]
+        if len(filtered) == 1:
+            return filtered.iloc[0]["slug"]
+        return exact_base.iloc[0]["slug"]
+
+    # 2. slug_base é substring do slug da tag (tag tem prefixo extra)
+    candidates_idx = [i for i, b in enumerate(base_series.tolist()) if len(b) > 4 and b in tag_slug]
+    if len(candidates_idx) == 1:
+        return escopo.iloc[candidates_idx[0]]["slug"]
+    if len(candidates_idx) > 1:
+        grupo_norm = _slug(grupo) if grupo else ""
+        for i in candidates_idx:
+            if _slug(escopo.iloc[i]["grupo"]) == grupo_norm:
+                return escopo.iloc[i]["slug"]
+        return escopo.iloc[candidates_idx[0]]["slug"]
 
     # 3. Tratamento de prefixos comuns (ex: n_, ep_)
-    # Remove prefixos conhecidos antes de calcular a similaridade para melhorar o match
     clean_tag = tag_slug
     for prefix in ['n_', 'ep_']:
         if clean_tag.startswith(prefix):
             clean_tag = clean_tag[len(prefix):]
             break
-            
-    # Remove hífens para comparar apenas as letras
+
     clean_tag_no_hyphen = clean_tag.replace('-', '')
-            
-    # 4. Match por similaridade de grafia (>= 92%)
+
+    # 4. Match por similaridade de grafia (>= 92%) contra slug_base
     best_match = None
     best_ratio = 0.0
-    
-    for scope_slug in escopo["slug"].unique():
-        if not scope_slug:
+    seen = set()
+    for scope_slug, b in zip(escopo["slug"].tolist(), base_series.tolist()):
+        if not b or b in seen:
             continue
-            
-        clean_scope = scope_slug.replace('-', '')
-        
-        # Tenta a similaridade com a tag original e com a tag sem prefixo/hífen
-        ratio1 = difflib.SequenceMatcher(None, tag_slug, scope_slug).ratio()
+        seen.add(b)
+        clean_scope = b.replace('-', '')
+        ratio1 = difflib.SequenceMatcher(None, tag_slug, b).ratio()
         ratio2 = difflib.SequenceMatcher(None, clean_tag_no_hyphen, clean_scope).ratio()
-        
         ratio = max(ratio1, ratio2)
-        
         if ratio > best_ratio:
             best_ratio = ratio
             best_match = scope_slug
-            
+
     if best_ratio >= 0.92 and best_match:
         return best_match
 

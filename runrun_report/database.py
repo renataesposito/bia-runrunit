@@ -190,6 +190,10 @@ def save_escopo(escopo_df: pd.DataFrame):
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Captura slugs antigos antes de substituir
+    cursor.execute("SELECT slug FROM escopo")
+    old_slugs = {row[0] for row in cursor.fetchall()}
+
     # Limpa tabela existente
     cursor.execute("DELETE FROM escopo")
 
@@ -200,6 +204,43 @@ def save_escopo(escopo_df: pd.DataFrame):
             (row.get("grupo"), row.get("entregavel"), row.get("qtd_mes"), row.get("qtd_ano"),
              row.get("previsto_acumulado"), row.get("slug"), row.get("cooldown_dias", 0))
         )
+
+    # Migração de entregas: se um slug antigo (ex.: "pecasgraficas") passou a ser
+    # sufixado (ex.: "pecasgraficas__eventos" e "pecasgraficas__mobilizacao"),
+    # redistribui as entregas com scope_slug antigo para o novo slug,
+    # usando o grupo da própria entrega como discriminador.
+    new_slugs = set(row.get("slug") for _, row in escopo_df.iterrows())
+    added = new_slugs - old_slugs
+    if added:
+        import re as _re
+        # Mapeia cada slug_base novo (parte antes de "__") para os compostos correspondentes
+        base_to_compostos = {}
+        for s in added:
+            if "__" in s:
+                base = s.split("__", 1)[0]
+                base_to_compostos.setdefault(base, []).append(s)
+
+        for base, compostos in base_to_compostos.items():
+            cursor.execute(
+                "SELECT e.id, e.grupo FROM entregas e WHERE e.scope_slug = ?",
+                (base,),
+            )
+            rows = cursor.fetchall()
+            for eid, egrupo in rows:
+                if not egrupo:
+                    continue
+                grupo_norm = _re.sub(r"[^a-z0-9]", "", (egrupo or "").lower())
+                grupo_norm = _re.sub(r"^\d+", "", grupo_norm)
+                # Procura composto cujo sufixo aparece no grupo normalizado
+                chosen = None
+                for c in compostos:
+                    sufixo = _re.sub(r"[^a-z0-9]", "", c.split("__", 1)[1].lower())
+                    if sufixo and sufixo in grupo_norm:
+                        chosen = c
+                        break
+                if not chosen:
+                    chosen = compostos[0]  # fallback determinístico
+                cursor.execute("UPDATE entregas SET scope_slug = ? WHERE id = ?", (chosen, eid))
 
     conn.commit()
     conn.close()
