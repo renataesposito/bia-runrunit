@@ -59,10 +59,25 @@ def load_escopo() -> pd.DataFrame:
     """Lê a aba PROD do Excel e calcula previsto acumulado."""
     df = pd.read_excel(EXCEL_PATH, sheet_name="PROD")
     df = df.iloc[:, 1:]  # descarta coluna de índice vazia
-    df.columns = ["grupo", "entregavel", "qtd_mes", "qtd_ano"]
+    
+    # Suporte para a coluna cooldown_dias
+    if "Cooldown (dias)" in df.columns:
+        df.rename(columns={"Cooldown (dias)": "cooldown_dias"}, inplace=True)
+    elif "cooldown_dias" not in df.columns:
+        # Pega as 4 primeiras colunas caso o header mude, e adiciona cooldown_dias se não existir
+        pass
+
+    cols = list(df.columns)
+    if len(cols) >= 4:
+        df = df.rename(columns={cols[0]: "grupo", cols[1]: "entregavel", cols[2]: "qtd_mes", cols[3]: "qtd_ano"})
+    
+    if "cooldown_dias" not in df.columns:
+        df["cooldown_dias"] = 0
+
     df = df.dropna(subset=["entregavel"]).copy()
     df["qtd_mes"] = pd.to_numeric(df["qtd_mes"], errors="coerce").fillna(0)
     df["qtd_ano"] = pd.to_numeric(df["qtd_ano"], errors="coerce").fillna(0)
+    df["cooldown_dias"] = pd.to_numeric(df["cooldown_dias"], errors="coerce").fillna(0).astype(int)
     df = df[(df["qtd_mes"] > 0) | (df["qtd_ano"] > 0)]  # remove linhas de cabeçalho ou vazias
 
     meses = _meses_decorridos()
@@ -371,6 +386,130 @@ def compute_kpis(escopo: pd.DataFrame, entregas: pd.DataFrame) -> dict:
         "tempo_contrato_meses": TEMPO_CONTRATO_MESES,
         "escopo_nome":          ESCOPO_NOME,
     }
+
+
+import calendar
+from config import FIM_CONTRATO
+import json
+
+def get_reference_date(current_date=None) -> date:
+    """Retorna o último dia do mês corrente."""
+    if current_date is None:
+        current_date = date.today()
+    last_day = calendar.monthrange(current_date.year, current_date.month)[1]
+    return date(current_date.year, current_date.month, last_day)
+
+def compute_ctd_viability(escopo_real: pd.DataFrame) -> dict:
+    """
+    Calcula a viabilidade (Cooldown) para a visão CTD.
+    Retorna dados para tabela e KPI de saúde.
+    """
+    ref_date = get_reference_date()
+    dias_restantes = (FIM_CONTRATO - ref_date).days
+    
+    viabilidade_list = []
+    qtd_em_risco = 0
+    
+    for _, item in escopo_real.iterrows():
+        # Usa qtd_ano como total do contrato (visão anual base)
+        pendentes = max(0, int(item.get("qtd_ano", 0)) - int(item.get("realizado", 0)))
+        cooldown = int(item.get("cooldown_dias", 0))
+        
+        if cooldown > 0:
+            dias_minimos = pendentes * cooldown
+            folga = dias_restantes - dias_minimos
+            
+            if pendentes == 0:
+                status = "Concluído"
+            elif dias_minimos > dias_restantes:
+                status = "Em Risco"
+                qtd_em_risco += 1
+            else:
+                status = "No Prazo"
+        else:
+            dias_minimos = 0
+            folga = 0
+            status = "N/A"
+            
+        viabilidade_list.append({
+            "grupo": item.get("grupo"),
+            "entregavel": item.get("entregavel"),
+            "pendentes": pendentes,
+            "cooldown_dias": cooldown,
+            "dias_minimos": dias_minimos,
+            "dias_restantes": dias_restantes,
+            "folga": folga,
+            "status": status,
+            "slug": item.get("slug")
+        })
+        
+    if qtd_em_risco == 0:
+        status_geral = "Verde"
+    elif qtd_em_risco <= 2:
+        status_geral = "Amarelo"
+    else:
+        status_geral = "Vermelho"
+        
+    # Salva snapshot mensal
+    mes_ano = f"{ref_date.year}-{ref_date.month:02d}"
+    em_risco_slugs = [v["slug"] for v in viabilidade_list if v["status"] == "Em Risco"]
+    database.save_health_snapshot(mes_ano, qtd_em_risco, status_geral, json.dumps(em_risco_slugs))
+    
+    return {
+        "viabilidade": viabilidade_list,
+        "saude": {
+            "status_geral": status_geral,
+            "qtd_em_risco": qtd_em_risco,
+            "dias_restantes": dias_restantes,
+            "ref_date": ref_date.strftime("%Y-%m-%d"),
+            "fim_contrato": FIM_CONTRATO.strftime("%Y-%m-%d")
+        }
+    }
+
+def generate_historical_snapshots(escopo: pd.DataFrame, entregas: pd.DataFrame):
+    """Gera snapshots retroativos se estiverem vazios."""
+    existing = database.get_health_snapshots()
+    if existing:
+        return
+        
+    start_date = DATA_INICIO
+    current = date.today()
+    
+    # Generate from start_date to last month
+    y, m = start_date.year, start_date.month
+    while (y < current.year) or (y == current.year and m <= current.month):
+        ref_date = date(y, m, calendar.monthrange(y, m)[1])
+        dias_restantes = (FIM_CONTRATO - ref_date).days
+        
+        # Filtrar entregas até a ref_date
+        ent_ate_ref = entregas[entregas["data"] <= ref_date.strftime("%Y-%m-%d")]
+        esc_real = escopo_com_realizado(escopo, ent_ate_ref)
+        
+        qtd_em_risco = 0
+        em_risco_slugs = []
+        for _, item in esc_real.iterrows():
+            pendentes = max(0, int(item.get("qtd_ano", 0)) - int(item.get("realizado", 0)))
+            cooldown = int(item.get("cooldown_dias", 0))
+            if cooldown > 0:
+                dias_minimos = pendentes * cooldown
+                if dias_minimos > dias_restantes and pendentes > 0:
+                    qtd_em_risco += 1
+                    em_risco_slugs.append(item.get("slug"))
+                    
+        if qtd_em_risco == 0:
+            status_geral = "Verde"
+        elif qtd_em_risco <= 2:
+            status_geral = "Amarelo"
+        else:
+            status_geral = "Vermelho"
+            
+        mes_ano = f"{y}-{m:02d}"
+        database.save_health_snapshot(mes_ano, qtd_em_risco, status_geral, json.dumps(em_risco_slugs))
+        
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
 
 
 # ==================== Funções de Debug ====================
