@@ -37,6 +37,30 @@ def to_brasilia_time(utc_str: str) -> str:
 _debug_logs = []
 _ignored_items = []
 
+# Estado do progresso de sincronização (0 = inativo, 1..5 = passo atual)
+_sync_progress_step = 0
+_sync_progress_total = 5
+
+
+def get_sync_progress() -> dict:
+    """Retorna o progresso atual do sync em memória."""
+    return {
+        "step": _sync_progress_step,
+        "total": _sync_progress_total,
+        "active": _sync_progress_step > 0,
+    }
+
+
+def _reset_sync_progress():
+    global _sync_progress_step
+    _sync_progress_step = 0
+
+
+def _advance_sync_progress():
+    global _sync_progress_step
+    if _sync_progress_step < _sync_progress_total:
+        _sync_progress_step += 1
+
 
 def _slug(text: str) -> str:
     """Normaliza: minúsculas, remove acentos, remove espaços."""
@@ -212,6 +236,7 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Cliente '" + CLIENT_NAME + "' não encontrado na API.")
     
     log_api_request("clients", {"name": CLIENT_NAME}, "success", duration, 1)
+    _advance_sync_progress()  # passo 1/5 (clients) concluído
 
     print("Buscando tarefas de Gestão de Atendimento...")
     start = time.time()
@@ -219,6 +244,7 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
     duration = int((time.time() - start) * 1000)
     print(str(len(gestao_tasks)) + " tarefas de Gestão encontradas.")
     log_api_request("tasks", {"client_id": client_id}, "success", duration, len(gestao_tasks))
+    _advance_sync_progress()  # passo 2/5 (tasks) concluído
 
     rows = []
     ignored_count = 0
@@ -230,12 +256,14 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
     all_comments = api_client.get_comments_batch(task_ids)
     duration = int((time.time() - start) * 1000)
     log_api_request("comments_batch", {"task_count": len(task_ids)}, "success", duration, sum(len(c) for c in all_comments.values()))
+    _advance_sync_progress()  # passo 3/5 (comments_batch) concluído
     
     print(f"Enfileirando busca de anexos para {len(gestao_tasks)} tarefas...")
     start = time.time()
     all_task_attachments = api_client.get_task_attachments_batch(task_ids)
     duration = int((time.time() - start) * 1000)
     log_api_request("documents_batch", {"task_count": len(task_ids)}, "success", duration, sum(len(a) for a in all_task_attachments.values()))
+    _advance_sync_progress()  # passo 4/5 (documents_batch) concluído
 
     # Coleta todos os IDs de documentos encontrados para buscar detalhes (tags_data)
     doc_ids_to_fetch = set()
@@ -259,6 +287,7 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
     doc_details = api_client.get_document_details_batch(list(doc_ids_to_fetch))
     duration = int((time.time() - start) * 1000)
     log_api_request("document_details_batch", {"doc_count": len(doc_ids_to_fetch)}, "success", duration, len(doc_details))
+    _advance_sync_progress()  # passo 5/5 (document_details_batch) concluído
 
     # Processamento de todos os anexos para salvar no banco
     anexos_unicos = {}
@@ -647,6 +676,9 @@ def sync_data() -> dict:
     sync_id = database.log_sync_start("full_sync")
     start_time = time.time()
     
+    # Reseta contador de progresso (0/5 ao iniciar)
+    _reset_sync_progress()
+    
     try:
         # Limpa fila de execuções anteriores para evitar métricas antigas no dashboard e retries infinitos
         queue_manager.clear_queue()
@@ -666,6 +698,7 @@ def sync_data() -> dict:
         
         database.log_sync_complete(sync_id, records_count, "success")
         queue_manager.release_lock("sync_lock")
+        _reset_sync_progress()
         
         return {
             "status": "success",
@@ -679,6 +712,7 @@ def sync_data() -> dict:
         duration = time.time() - start_time
         database.log_sync_complete(sync_id, 0, "error", str(e))
         queue_manager.release_lock("sync_lock")
+        _reset_sync_progress()
         
         return {
             "status": "error",

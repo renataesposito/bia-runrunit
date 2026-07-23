@@ -91,6 +91,32 @@
 
 <div class="content-wrap">
 
+  <!-- Filtros e Exportação (movidos da tela Anual) -->
+  <div class="card panel mb-3">
+    <div class="card-body">
+      <p class="sec-title mb-2">Filtros e Exportação de Dados</p>
+      <div class="row g-2 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label small fw-bold mb-1" for="dbg-f-ini">De</label>
+          <input type="date" id="dbg-f-ini" class="form-control form-control-sm" value="2026-03-01">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold mb-1" for="dbg-f-fim">Até</label>
+          <input type="date" id="dbg-f-fim" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-bold mb-1" for="dbg-f-grupo">Grupo / Tipo de Entregável</label>
+          <select id="dbg-f-grupo" class="form-select form-select-sm">
+            <option value="">Todos os grupos</option>
+          </select>
+        </div>
+        <div class="col-md-4 d-flex align-items-end justify-content-end">
+          <button class="btn btn-sm btn-sync" id="dbg-btn-exp">⬇ Exportar Excel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Status e Ações -->
   <div class="card panel mb-3">
     <div class="card-body">
@@ -153,8 +179,8 @@
         </div>
         <div class="col-md-2">
           <div class="p-3 border rounded bg-light">
-            <div class="text-muted small fw-bold">Taxa Sucesso</div>
-            <div id="metric-success-rate" class="fs-4 fw-bold">—</div>
+            <div class="text-muted small fw-bold">Pendente da task</div>
+            <div id="metric-sync-progress" class="fs-4 fw-bold">0/5</div>
           </div>
         </div>
         <div class="col-md-2">
@@ -268,11 +294,29 @@ async function init() {
   await loadIgnored();
   await loadOrphanTasks();
   await loadQueueData();
+  await loadSyncProgress();
   await loadMesesPdf();
+  await loadGrupos();
   document.getElementById('loading').style.display = 'none';
   
-  // Atualiza os dados da fila a cada 3 segundos
+  // Atualiza os dados da fila e o progresso de sync a cada 3 segundos
   setInterval(loadQueueData, 3000);
+  setInterval(loadSyncProgress, 3000);
+}
+
+async function loadGrupos() {
+  try {
+    const res = await fetch('/api/data');
+    const data = await res.json();
+    const sel = document.getElementById('dbg-f-grupo');
+    (data.grupos || []).forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = opt.textContent = g;
+      sel.appendChild(opt);
+    });
+  } catch (err) {
+    console.error('Erro ao carregar grupos:', err);
+  }
 }
 
 async function loadOrphanTasks() {
@@ -381,7 +425,6 @@ async function loadQueueData() {
     document.getElementById('queue-errors').textContent = status.errors;
     
     document.getElementById('metric-reqs-min').textContent = metrics.reqs_per_minute;
-    document.getElementById('metric-success-rate').textContent = metrics.success_rate_pct + '%';
     document.getElementById('metric-avg-time').textContent = metrics.avg_duration_ms + ' ms';
     
     if (status.pending > 100) {
@@ -391,6 +434,24 @@ async function loadQueueData() {
     }
   } catch (err) {
     console.error('Erro ao carregar dados da fila:', err);
+  }
+}
+
+async function loadSyncProgress() {
+  try {
+    const res = await fetch('/api/sync/progress');
+    const p = await res.json();
+    const el = document.getElementById('metric-sync-progress');
+    el.textContent = `${p.step}/${p.total}`;
+    // Cor baseada no progresso
+    el.classList.remove('text-muted', 'text-warning', 'text-success');
+    if (p.active) {
+      el.classList.add(p.step >= p.total ? 'text-success' : 'text-warning');
+    } else {
+      el.classList.add('text-muted');
+    }
+  } catch (err) {
+    // Silencia erros de polling
   }
 }
 
@@ -426,7 +487,7 @@ async function loadStatus() {
 
 async function loadLogs() {
   try {
-    const res = await fetch('/api/debug/logs?limit=100');
+    const res = await fetch('/api/debug/logs?limit=250');
     _logs = await res.json();
     renderLogs();
   } catch (err) {
@@ -450,7 +511,7 @@ function renderLogs() {
       <tr>
         <td>${timestamp}</td>
         <td>${log.endpoint || '-'}</td>
-        <td><small>${params.substring(0, 50)}${params.length > 50 ? '...' : ''}</small></td>
+        <td><small>${params.substring(0, 250)}${params.length > 250 ? '...' : ''}</small></td>
         <td><span class="badge ${statusClass}">${log.status || '-'}</span></td>
         <td>${log.duration_ms || 0}</td>
         <td>${log.records_count || 0}</td>
@@ -515,6 +576,9 @@ async function syncNow() {
   btn.disabled = true;
   btn.textContent = 'Sincronizando...';
   
+  // Limpa visualmente o progresso (será sobrescrito pelo polling)
+  document.getElementById('metric-sync-progress').textContent = '0/5';
+  
   try {
     const res = await fetch('/api/sync', { method: 'POST' });
     
@@ -525,20 +589,19 @@ async function syncNow() {
       data = JSON.parse(textResponse);
     } catch(parseErr) {
       console.error("Resposta não é JSON:", textResponse);
-      throw new Error("O servidor não retornou um JSON válido. Resposta: " + textResponse.substring(0, 100) + "...");
+      // Silencia para o usuário durante a sincronização
+      return;
     }
     
-    if (data.status === 'success') {
-      alert(`Sincronização concluída!\nRegistros: ${data.records_fetched}\nDuração: ${data.duration_seconds}s`);
-    } else {
-      alert(`Erro na sincronização: ${data.error}`);
-    }
+    // Erros são ignorados durante o sincronismo (processamento silencioso)
+    // Atualiza UI sem exibir mensagem de erro
     
     await loadStatus();
     await loadLogs();
     await loadIgnored();
   } catch (err) {
-    alert('Erro ao sincronizar: ' + err.message);
+    // Silencia erros durante o sincronismo
+    console.error('Sync falhou silenciosamente:', err);
   }
   
   btn.disabled = false;
@@ -559,6 +622,16 @@ async function clearLogs() {
     alert('Erro ao limpar logs: ' + err.message);
   }
 }
+
+// Handler de exportação (movido da tela Anual)
+document.getElementById('dbg-btn-exp').addEventListener('click', () => {
+  const params = {
+    ini:   document.getElementById('dbg-f-ini').value,
+    fim:   document.getElementById('dbg-f-fim').value,
+    grupo: document.getElementById('dbg-f-grupo').value,
+  };
+  window.location.href = '/api/export?' + new URLSearchParams(params).toString();
+});
 
 // Iniciar
 init();

@@ -279,6 +279,13 @@ def api_sync():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
+@app.route("/api/sync/progress")
+@requires_auth
+def api_sync_progress():
+    """Retorna o progresso atual da sincronização (passo 0..5 de 5)."""
+    return jsonify(data_processor.get_sync_progress())
+
+
 @app.route("/api/debug/ignored")
 @requires_auth
 def api_debug_ignored():

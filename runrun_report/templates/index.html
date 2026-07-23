@@ -102,15 +102,6 @@
       display:flex; align-items:center; justify-content:center; z-index:9999;
     }
     #error-msg { display:none; color:#DC3545; margin-top:12px; font-size:14px; }
-
-    /* ── Export button ── */
-    #btn-exp {
-      background: var(--brand-lime);
-      color: var(--brand-dark);
-      border: none;
-      font-weight: 600;
-    }
-    #btn-exp:hover { background: #c8d400; color: var(--brand-dark); }
   </style>
 </head>
 <body>
@@ -191,30 +182,7 @@
       </div>
     </div>
 
-    <!-- Filtros - Visão Anual -->
-    <div class="card panel mb-3" id="filtros-anual">
-      <div class="card-body">
-        <div class="row g-2 align-items-end">
-          <div class="col-md-2">
-            <label class="form-label small fw-bold mb-1" for="f-ini">De</label>
-            <input type="date" id="f-ini" class="form-control form-control-sm" value="2026-03-01">
-          </div>
-          <div class="col-md-2">
-            <label class="form-label small fw-bold mb-1" for="f-fim">Até</label>
-            <input type="date" id="f-fim" class="form-control form-control-sm">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label small fw-bold mb-1" for="f-grupo">Grupo / Tipo de Entregável</label>
-            <select id="f-grupo" class="form-select form-select-sm">
-              <option value="">Todos os grupos</option>
-            </select>
-          </div>
-          <div class="col-md-4 d-flex align-items-end justify-content-end">
-            <button class="btn btn-sm" id="btn-exp">⬇ Exportar Excel</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- Filtros e Exportação foram movidos para a tela de Debug -->
 
     <!-- Filtros - Visão Mensal -->
     <div class="card panel mb-3" id="filtros-mensal" style="display:none">
@@ -453,11 +421,6 @@ function esc(v) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function debounce(fn, ms) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
-}
-
 // ─── inicialização ────────────────────────────────────────────────────────────
 async function init() {
   try {
@@ -478,35 +441,12 @@ async function init() {
     'Escopo: ' + _data.kpis.escopo_nome + '  |  A partir de 01/03/2026  |  ' + Math.round(_data.kpis.meses_decorridos) + ' meses decorridos';
   document.getElementById('kpi-tempo').textContent = Math.round(_data.kpis.meses_decorridos) + '/' + _data.kpis.tempo_contrato_meses + 'm';
 
-  populateGrupos(_data.grupos);
   populateGruposMensal(_data.grupos);
   initHoverDelegation();
   update();
   updateSortIndicators('escopo');
   updateSortIndicators('hist');
   document.getElementById('loading').style.display = 'none';
-}
-
-// ─── filtros ──────────────────────────────────────────────────────────────────
-function getFilters() {
-  return {
-    ini:   document.getElementById('f-ini').value,
-    fim:   document.getElementById('f-fim').value,
-    grupo: document.getElementById('f-grupo').value,
-  };
-}
-
-function filterEntregas(entregas, {ini, fim, grupo}) {
-  return entregas.filter(e => {
-    if (ini   && e.data < ini)           return false;
-    if (fim   && e.data && e.data > fim) return false;
-    if (grupo && e.grupo !== grupo)      return false;
-    return true;
-  });
-}
-
-function filterEscopo(escopo, {grupo}) {
-  return grupo ? escopo.filter(e => e.grupo === grupo) : escopo;
 }
 
 // ─── recalcula realizado ──────────────────────────────────────────────────────
@@ -535,11 +475,9 @@ function computeRealizado(escopo, entregas_ano, entregas_mes) {
 
 // ─── update global ────────────────────────────────────────────────────────────
 function update() {
-  const f        = getFilters();
-  const hasDate  = f.fim !== '';
-  const ent_ano  = filterEntregas(_data.entregas, {ini:'', fim:'', grupo:f.grupo});
-  const ent_mes  = filterEntregas(_data.entregas, f);
-  const escopo   = filterEscopo(_data.escopo, f);
+  const escopo   = _data.escopo;
+  const ent_ano  = _data.entregas;
+  const ent_mes  = _data.entregas;
   const escopoR  = computeRealizado(escopo, ent_ano, ent_mes);
 
   const totalPrev = escopoR.reduce((s, e) => s + (e.qtd_ano || 0), 0);
@@ -976,15 +914,6 @@ function updateSortIndicators(table) {
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-function populateGrupos(grupos) {
-  const sel = document.getElementById('f-grupo');
-  grupos.forEach(g => {
-    const opt = document.createElement('option');
-    opt.value = opt.textContent = g;
-    sel.appendChild(opt);
-  });
-}
-
 function populateGruposMensal(grupos) {
   const sel = document.getElementById('f-grupo-mensal');
   grupos.forEach(g => {
@@ -1142,21 +1071,12 @@ setInterval(pollQueueStatus, 5000);
 pollQueueStatus();
 
 // ─── eventos ──────────────────────────────────────────────────────────────────
-const debouncedUpdate = debounce(update, 200);
-['f-ini','f-fim'].forEach(id =>
-  document.getElementById(id).addEventListener('change', debouncedUpdate)
-);
-document.getElementById('f-grupo').addEventListener('change', () => update());
 document.getElementById('f-grupo-mensal').addEventListener('change', () => {
   if (_currentView === 'mensal') update();
 });
 document.getElementById('f-ano').addEventListener('change', () => {
   populateMonthButtons();
   update();
-});
-document.getElementById('btn-exp').addEventListener('click', () => {
-  const params = _currentView === 'anual' ? getFilters() : getFiltersMensal();
-  window.location.href = '/api/export?' + new URLSearchParams(params).toString();
 });
 
 // Override update function to handle both views
