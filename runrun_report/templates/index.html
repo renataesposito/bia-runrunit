@@ -625,16 +625,14 @@ function renderChartEscopo(escopoR, isMensal = false, dividerOverride = null) {
   });
 
   // Cálculo do limite máximo do eixo X para posicionar a anotação sempre após as barras
-  const maxX = Math.max(
-    1,
-    ...escopoSorted.map((e, i) => Math.max(
+  const annotXs = escopoSorted.map((e, i) => {
+    if (e.isSeparator) return 0;
+    // Final real da barra (após Realizado + Saldo + Acima do previsto) + folga
+    return Math.max(
       planejadoParaDesenho[i] || 0,
-      realizadoSeg[i] || 0,
-      saldo[i] || 0,
-      overflow[i] || 0
-    ))
-  );
-  const annotX = maxX * 1.02; // pequeno respiro depois da maior barra
+      realizadoSeg[i] + saldo[i] + overflow[i]
+    ) * 1.02;
+  });
 
   const customdata = escopoSorted.map((e, i) => {
     if (e.isSeparator) return [0,0,0,0,'','', ''];
@@ -690,7 +688,7 @@ function renderChartEscopo(escopoR, isMensal = false, dividerOverride = null) {
       const isRecorrente = e.qtd_ano >= 12;
       const label = isRecorrente ? planLabel : '/Ano';
       return {
-        x: annotX,
+        x: annotXs[i],
         y: e.entregavel,
         text: `${label} ${Math.round(planejadoParaDesenho[i])}`,
         xanchor: 'left',
