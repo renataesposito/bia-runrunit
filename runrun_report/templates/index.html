@@ -624,6 +624,18 @@ function renderChartEscopo(escopoR, isMensal = false, dividerOverride = null) {
     return isRecorrente ? toSize(Math.max(e.realizado_ano - planejadoParaDesenho[i], 0)) : 0;
   });
 
+  // Cálculo do limite máximo do eixo X para posicionar a anotação sempre após as barras
+  const maxX = Math.max(
+    1,
+    ...escopoSorted.map((e, i) => Math.max(
+      planejadoParaDesenho[i] || 0,
+      realizadoSeg[i] || 0,
+      saldo[i] || 0,
+      overflow[i] || 0
+    ))
+  );
+  const annotX = maxX * 1.02; // pequeno respiro depois da maior barra
+
   const customdata = escopoSorted.map((e, i) => {
     if (e.isSeparator) return [0,0,0,0,'','', ''];
     const isRecorrente = e.qtd_ano >= 12;
@@ -657,14 +669,9 @@ function renderChartEscopo(escopoR, isMensal = false, dividerOverride = null) {
 
   const planLabel = isMensal ? '/Mês' : '/Ano';
 
-  const recorrenteColors = escopoSorted.map(e => e.isSeparator ? 'rgba(0,0,0,0)' : (e.qtd_ano >= 12 ? BRAND_LIME : 'rgba(0,0,0,0)'));
-  const naoRecorrenteColors = escopoSorted.map(e => e.isSeparator ? 'rgba(0,0,0,0)' : (e.qtd_ano < 12 ? '#0D6EFD' : 'rgba(0,0,0,0)'));
-
   Plotly.react('g-escopo', [
-    { name: 'Realizado (Recorrente)', y: labels, x: escopoSorted.map((e, i) => e.qtd_ano >= 12 ? realizadoSeg[i] : 0), type: 'bar', orientation: 'h',
+    { name: 'Realizado', y: labels, x: realizadoSeg, type: 'bar', orientation: 'h',
       marker: { color: BRAND_LIME }, customdata, hovertemplate: hoverTpl, showlegend: true },
-    { name: 'Ação Não Recorrente', y: labels, x: escopoSorted.map((e, i) => e.qtd_ano < 12 ? realizadoSeg[i] : 0), type: 'bar', orientation: 'h',
-      marker: { color: '#0D6EFD' }, customdata, hovertemplate: hoverTpl, showlegend: true },
     { name: 'Saldo', y: labels, x: saldo, type: 'bar', orientation: 'h',
       marker: { color: BRAND_DARK }, customdata, hovertemplate: hoverTpl },
     { name: 'Acima do previsto', y: labels, x: overflow, type: 'bar', orientation: 'h',
@@ -683,7 +690,7 @@ function renderChartEscopo(escopoR, isMensal = false, dividerOverride = null) {
       const isRecorrente = e.qtd_ano >= 12;
       const label = isRecorrente ? planLabel : '/Ano';
       return {
-        x: Math.max(planejadoParaDesenho[i], realizadoSeg[i]),
+        x: annotX,
         y: e.entregavel,
         text: `${label} ${Math.round(planejadoParaDesenho[i])}`,
         xanchor: 'left',
@@ -788,12 +795,7 @@ function renderEscopoTable(escopoR, isMensalView, hasMonthsSelected) {
        pct = previsto > 0 ? Math.min(100, Math.round(100 * realizado / previsto)) : 0;
      }
 
-    let barClr;
-    if (!isRecorrente) {
-      barClr = '#0D6EFD';
-    } else {
-      barClr = pct >= 80 ? BRAND_LIME : (pct >= 50 ? ORANGE : (pct > 0 ? RED : GRAY));
-    }
+    let barClr = BRAND_LIME;
     const txtClr = barClr;
     const hasDetail = e.entregas_detail?.length > 0;
     const tdExtra   = hasDetail
