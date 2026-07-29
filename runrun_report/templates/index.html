@@ -154,9 +154,9 @@
     <div class="row g-3 mb-3">
       <div class="col-md-3">
         <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-          <p class="kpi-title">Tarefas Pendentes no Mês</p>
+          <p class="kpi-title" id="kpi-saldo-title">Tarefas Pendentes no Mês</p>
           <div class="kpi-value" id="kpi-saldo" style="color:#1A1A1A">—</div>
-          <small class="kpi-sub">itens restantes no período</small>
+          <small class="kpi-sub" id="kpi-saldo-sub">itens restantes no período</small>
         </div></div>
       </div>
       <div class="col-md-3">
@@ -170,12 +170,12 @@
         <div class="card kpi-card kpi-accent h-100"><div class="card-body">
           <p class="kpi-title">% de Realização</p>
           <div class="kpi-value" id="kpi-pct" style="color:#1A1A1A">—</div>
-          <small class="kpi-sub">realizado / previsto acumulado</small>
+          <small class="kpi-sub" id="kpi-pct-sub">realizado / previsto acumulado</small>
         </div></div>
       </div>
       <div class="col-md-3">
         <div class="card kpi-card kpi-accent h-100"><div class="card-body">
-          <p class="kpi-title">Tarefas por Mês</p>
+          <p class="kpi-title" id="kpi-tempo-title">Tarefas por Mês</p>
           <div class="kpi-value" id="kpi-tempo" style="color:#1A1A1A">—</div>
           <small class="kpi-sub" id="kpi-tempo-sub">previsto no período</small>
         </div></div>
@@ -439,7 +439,6 @@ async function init() {
 
   document.getElementById('header-sub').textContent =
     'Escopo: ' + _data.kpis.escopo_nome + '  |  A partir de 01/03/2026  |  ' + Math.round(_data.kpis.meses_decorridos) + ' meses decorridos';
-  document.getElementById('kpi-tempo').textContent = Math.round(_data.kpis.meses_decorridos) + '/' + _data.kpis.tempo_contrato_meses + 'm';
 
   populateGruposMensal(_data.grupos);
   initHoverDelegation();
@@ -501,7 +500,26 @@ function update() {
 }
 
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
+function setKpiLabels(view) {
+  // Anual: termos relacionados a ano. Mensal: termos relacionados a mês.
+  if (view === 'anual') {
+    document.getElementById('kpi-saldo-title').textContent = 'Saldo Restante';
+    document.getElementById('kpi-saldo-sub').textContent   = 'itens restantes no contrato';
+    document.getElementById('kpi-tempo-title').textContent = 'Escopo Contratado';
+    document.getElementById('kpi-tempo-sub').textContent   = 'total previsto no ano';
+    document.getElementById('kpi-pct-sub').textContent     = 'realizado / previsto no ano';
+  } else {
+    // Mensal (ou qualquer outro)
+    document.getElementById('kpi-saldo-title').textContent = 'Tarefas Pendentes no Mês';
+    document.getElementById('kpi-saldo-sub').textContent   = 'itens restantes no período';
+    document.getElementById('kpi-tempo-title').textContent = 'Tarefas por Mês';
+    document.getElementById('kpi-tempo-sub').textContent   = 'previsto no período';
+    document.getElementById('kpi-pct-sub').textContent     = 'realizado / previsto no período';
+  }
+}
+
 function renderKpis(saldo, real, pct, tarefasPorMes) {
+  setKpiLabels(_currentView);
   setKpi('kpi-saldo',   Math.round(saldo), saldo >= 0 ? BRAND_DARK : RED);
   setKpi('kpi-realizado', Math.round(real),  real > 0 ? BRAND_LIME : BRAND_DARK);
   setKpi('kpi-pct',       pct+'%', pct >= 80 ? GREEN : (pct >= 50 ? ORANGE : RED));
