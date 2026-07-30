@@ -95,19 +95,19 @@ def load_escopo() -> pd.DataFrame:
     if len(cols) >= 4:
         df = df.rename(columns={cols[0]: "grupo", cols[1]: "entregavel", cols[2]: "qtd_mes", cols[3]: "qtd_ano"})
 
-    # Captura a 5ª coluna (cooldown_dias) quando o header do Excel veio como "Unnamed: N"
-    if len(cols) >= 5 and "cooldown_dias" not in df.columns:
+    # Captura a 5ª coluna (sla_dias) quando o header do Excel veio como "Unnamed: N"
+    if len(cols) >= 5 and "sla_dias" not in df.columns:
         extra = cols[4]
-        if str(extra).startswith("Unnamed:") or str(extra).strip().lower() == "cooldown_dias":
-            df = df.rename(columns={extra: "cooldown_dias"})
+        if str(extra).startswith("Unnamed:") or str(extra).strip().lower() == "sla_dias":
+            df = df.rename(columns={extra: "sla_dias"})
 
-    if "cooldown_dias" not in df.columns:
-        df["cooldown_dias"] = 0
+    if "sla_dias" not in df.columns:
+        df["sla_dias"] = 0
 
     df = df.dropna(subset=["entregavel"]).copy()
     df["qtd_mes"] = pd.to_numeric(df["qtd_mes"], errors="coerce").fillna(0)
     df["qtd_ano"] = pd.to_numeric(df["qtd_ano"], errors="coerce").fillna(0)
-    df["cooldown_dias"] = pd.to_numeric(df["cooldown_dias"], errors="coerce").fillna(0).astype(int)
+    df["sla_dias"] = pd.to_numeric(df["sla_dias"], errors="coerce").fillna(0).astype(int)
     df = df[(df["qtd_mes"] > 0) | (df["qtd_ano"] > 0)]  # remove linhas de cabeçalho ou vazias
 
     meses = _meses_decorridos()
@@ -466,7 +466,7 @@ def get_reference_date(current_date=None) -> date:
 
 def compute_ctd_viability(escopo_real: pd.DataFrame) -> dict:
     """
-    Calcula a viabilidade (Cooldown) para a visão CTD.
+    Calcula a viabilidade (SLA) para a visão CTD.
     Retorna dados para tabela e KPI de saúde.
     """
     ref_date = get_reference_date()
@@ -478,10 +478,10 @@ def compute_ctd_viability(escopo_real: pd.DataFrame) -> dict:
     for _, item in escopo_real.iterrows():
         # Usa qtd_ano como total do contrato (visão anual base)
         pendentes = max(0, int(item.get("qtd_ano", 0)) - int(item.get("realizado", 0)))
-        cooldown = int(item.get("cooldown_dias", 0))
-        
-        if cooldown > 0:
-            dias_minimos = pendentes * cooldown
+        sla_dias_val = int(item.get("sla_dias", 0))
+
+        if sla_dias_val > 0:
+            dias_minimos = pendentes * sla_dias_val
             folga = dias_restantes - dias_minimos
             
             if pendentes == 0:
@@ -492,6 +492,7 @@ def compute_ctd_viability(escopo_real: pd.DataFrame) -> dict:
             else:
                 status = "No Prazo"
         else:
+            sla_dias_val = 0
             dias_minimos = 0
             folga = 0
             status = "N/A"
@@ -500,7 +501,7 @@ def compute_ctd_viability(escopo_real: pd.DataFrame) -> dict:
             "grupo": item.get("grupo"),
             "entregavel": item.get("entregavel"),
             "pendentes": pendentes,
-            "cooldown_dias": cooldown,
+            "sla_dias": sla_dias_val,
             "dias_minimos": dias_minimos,
             "dias_restantes": dias_restantes,
             "folga": folga,
@@ -554,9 +555,9 @@ def generate_historical_snapshots(escopo: pd.DataFrame, entregas: pd.DataFrame):
         em_risco_slugs = []
         for _, item in esc_real.iterrows():
             pendentes = max(0, int(item.get("qtd_ano", 0)) - int(item.get("realizado", 0)))
-            cooldown = int(item.get("cooldown_dias", 0))
-            if cooldown > 0:
-                dias_minimos = pendentes * cooldown
+            sla_dias_val = int(item.get("sla_dias", 0))
+            if sla_dias_val > 0:
+                dias_minimos = pendentes * sla_dias_val
                 if dias_minimos > dias_restantes and pendentes > 0:
                     qtd_em_risco += 1
                     em_risco_slugs.append(item.get("slug"))
@@ -721,6 +722,78 @@ def sync_data() -> dict:
             "duration_seconds": round(duration, 2),
             "message": f"Erro na sincronização: {str(e)}"
         }
+
+
+def compute_sla_violations(entregas: pd.DataFrame, escopo: pd.DataFrame) -> list[dict]:
+    """
+    Detecta violações de SLA: duas entregas do mesmo item ocorreram
+    em intervalo menor que sla_dias.
+    Retorna lista de violações encontradas.
+    """
+    if entregas.empty or escopo.empty:
+        return []
+
+    # Mapa {slug: sla_dias}
+    sla_map = escopo.set_index("slug")["sla_dias"].to_dict()
+    mapeadas = entregas[entregas["mapeado"] & entregas["scope_slug"].notna()].copy()
+
+    violations = []
+    for slug, group in mapeadas.groupby("scope_slug"):
+        sla = sla_map.get(slug, 0)
+        if sla <= 0:
+            continue
+        group = group.sort_values("data")
+        dates = group["data"].dropna().unique()
+        for i in range(1, len(dates)):
+            d1 = datetime.strptime(dates[i - 1], "%Y-%m-%d")
+            d2 = datetime.strptime(dates[i], "%Y-%m-%d")
+            gap = (d2 - d1).days
+            if 0 < gap < sla:
+                violations.append({
+                    "scope_slug": slug,
+                    "data1": dates[i - 1],
+                    "data2": dates[i],
+                    "intervalo_dias": gap,
+                    "sla_exigido": sla,
+                })
+    return violations
+
+
+def compute_monthly_velocity(entregas: pd.DataFrame) -> list[dict]:
+    """
+    Agrupa entregas mapeadas por mês e retorna totais mensais.
+    """
+    if entregas.empty:
+        return []
+    mapeadas = entregas[entregas["mapeado"]].copy()
+    if mapeadas.empty:
+        return []
+    mapeadas["mes_ano"] = mapeadas["data"].str[:7]
+    agg = mapeadas.groupby("mes_ano")["quantidade"].sum().reset_index()
+    agg.columns = ["mes_ano", "total"]
+    agg = agg.sort_values("mes_ano")
+    return agg.to_dict(orient="records")
+
+
+def compute_delivery_meta(ctd_saude: dict, total_contrato: int, total_realizado: int) -> dict:
+    """
+    Calcula a meta de entrega necessária para cumprir o contrato.
+    Retorna unidades/dia e unidades/mês necessárias.
+    """
+    dias_restantes = ctd_saude.get("dias_restantes", 0)
+    pendentes = max(0, total_contrato - total_realizado)
+    if dias_restantes > 0 and pendentes > 0:
+        por_dia = round(pendentes / dias_restantes, 2)
+        por_mes = round(pendentes / max(1, dias_restantes / 30), 1)
+    else:
+        por_dia = 0
+        por_mes = 0
+    return {
+        "pendentes": pendentes,
+        "por_dia": por_dia,
+        "por_mes": por_mes,
+        "dias_restantes": dias_restantes,
+    }
 
 
 def get_meses_com_dados() -> list[str]:

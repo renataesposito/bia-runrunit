@@ -204,7 +204,16 @@ def api_data():
     # Dados CTD
     ctd_data = data_processor.compute_ctd_viability(_escopo_real)
     ctd_snapshots = database.get_health_snapshots()
-    
+
+    # Novos dados auxiliares CTD
+    sla_violations = data_processor.compute_sla_violations(_entregas, _escopo)
+    monthly_velocity = data_processor.compute_monthly_velocity(_entregas)
+    delivery_meta = data_processor.compute_delivery_meta(
+        ctd_data.get("saude", {}),
+        _kpis.get("total_contrato", 0),
+        _kpis.get("total_realizado", 0),
+    )
+
     return jsonify({
         "kpis": _kpis,
         "escopo": escopo_json,
@@ -214,6 +223,11 @@ def api_data():
         "anos_com_dados": anos_com_dados,
         "ctd": ctd_data,
         "ctd_snapshots": ctd_snapshots,
+        "ctd_aux": {
+            "sla_violations": sla_violations,
+            "monthly_velocity": monthly_velocity,
+            "delivery_meta": delivery_meta,
+        },
     })
 
 

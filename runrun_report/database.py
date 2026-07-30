@@ -34,7 +34,7 @@ def init_database():
             qtd_ano INTEGER,
             previsto_acumulado INTEGER,
             slug TEXT UNIQUE,
-            cooldown_dias INTEGER DEFAULT 0
+            sla_dias INTEGER DEFAULT 0
         )
     """)
 
@@ -158,7 +158,11 @@ def init_database():
 
     # Migrações
     try:
-        cursor.execute("ALTER TABLE escopo ADD COLUMN cooldown_dias INTEGER DEFAULT 0")
+        cursor.execute("ALTER TABLE escopo RENAME COLUMN cooldown_dias TO sla_dias")
+    except sqlite3.OperationalError:
+        pass # Tabela já atualizada
+    try:
+        cursor.execute("ALTER TABLE escopo ADD COLUMN sla_dias INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass # Coluna já existe
 
@@ -200,9 +204,9 @@ def save_escopo(escopo_df: pd.DataFrame):
     # Insere novos dados
     for _, row in escopo_df.iterrows():
         cursor.execute(
-            "INSERT INTO escopo (grupo, entregavel, qtd_mes, qtd_ano, previsto_acumulado, slug, cooldown_dias) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO escopo (grupo, entregavel, qtd_mes, qtd_ano, previsto_acumulado, slug, sla_dias) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (row.get("grupo"), row.get("entregavel"), row.get("qtd_mes"), row.get("qtd_ano"),
-             row.get("previsto_acumulado"), row.get("slug"), row.get("cooldown_dias", 0))
+             row.get("previsto_acumulado"), row.get("slug"), row.get("sla_dias", 0))
         )
 
     # Migração de entregas: se um slug antigo (ex.: "pecasgraficas") passou a ser

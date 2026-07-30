@@ -2,23 +2,23 @@
 
 ## 1. Resumo e Objetivo
 
-Criar uma terceira visão no dashboard atual chamada **CTD**, focada na saúde do contrato como um todo, desde o início (01/03/2026) até o fim (26/02/2027). A visão introduzirá a lógica de "Cooldown", avaliando se os entregáveis pendentes podem ser concluídos no tempo restante, consolidando tudo em um indicador de Temperatura de Saúde.
+Criar uma terceira visão no dashboard atual chamada **CTD**, focada na saúde do contrato como um todo, desde o início (01/03/2026) até o fim (26/02/2027). A visão introduzirá a lógica de "SLA", avaliando se os entregáveis pendentes podem ser concluídos no tempo restante, consolidando tudo em um indicador de Temperatura de Saúde.
 
 ## 2. Estrutura de Dados e Modificações
 
 Para atender ao requisito de facilidade de manutenção sem exigir novas fontes de dados:
 
-* **Planilha de Escopo (`Escopo Nuclea.xlsx`)**: Adicionar uma coluna `cooldown_dias` na aba `PROD`. O usuário poderá preencher o valor em dias para os entregáveis aplicáveis.
+* **Planilha de Escopo (`Escopo Nuclea.xlsx`)**: Adicionar uma coluna `sla_dias` na aba `PROD`. O usuário poderá preencher o valor em dias para os entregáveis aplicáveis.
 
 * **Banco de Dados (`database.py`)**:
 
-  * Atualizar a criação da tabela `escopo` para incluir o campo `cooldown_dias INTEGER DEFAULT 0`.
+  * Atualizar a criação da tabela `escopo` para incluir o campo `sla_dias INTEGER DEFAULT 0`.
 
   * Criar uma nova tabela `health_snapshots` para armazenar o histórico mensal da saúde: `id`, `mes_ano` (ex: "2026-07"), `qtd_em_risco` (int), `status_geral` (Verde/Amarelo/Vermelho).
 
 * **Backend (`data_processor.py`** **/** **`app.py`)**:
 
-  * Atualizar `load_escopo()` para ler e processar a nova coluna `cooldown_dias`.
+  * Atualizar `load_escopo()` para ler e processar a nova coluna `sla_dias`.
 
   * Expor esses dados via a rota `/api/data` para consumo no frontend.
 
@@ -48,8 +48,8 @@ Para atender ao requisito de facilidade de manutenção sem exigir novas fontes 
   for item in escopo:
       pendentes = max(0, item.qtd_ano - item.realizado_ano)
       
-      if item.cooldown_dias > 0:
-          dias_minimos_necessarios = pendentes * item.cooldown_dias
+      if item.sla_dias > 0:
+          dias_minimos_necessarios = pendentes * item.sla_dias
           folga = dias_restantes - dias_minimos_necessarios
           
           if pendentes == 0:
@@ -92,23 +92,23 @@ A aba CTD será uma página nova construída do zero, reaproveitando as variáve
 
 * **Tabelas**:
 
-  1. **Tabela de Viabilidade (Principal)**: Listando Tipo | Pendentes | Cooldown | Dias Necessários | Dias Restantes | Folga | Status.
+  1. **Tabela de Viabilidade (Principal)**: Listando Tipo | Pendentes | SLA | Dias Necessários | Dias Restantes | Folga | Status.
   2. **Ações Recomendadas**: Tabela condensada exibindo apenas os itens "Em Risco", destacando a necessidade de priorização.
 
 ## 5. Escopo e Classificação dos Entregáveis
 
 A definição exata virá da planilha editada pelo usuário, mas a regra no código tratará:
 
-* **Com Cooldown (`cooldown_dias > 0`)**: Entram no cálculo de viabilidade, geram folga e podem sinalizar risco, impactando a temperatura de saúde geral.
+* **Com SLA (`sla_dias > 0`)**: Entram no cálculo de viabilidade, geram folga e podem sinalizar risco, impactando a temperatura de saúde geral.
 
-* **Contagem Simples (`cooldown_dias == 0`** **ou vazio)**: Ignorados pelo cálculo de risco de prazo. Contam apenas para o progresso geral e volume de entregas.
+* **Contagem Simples (`sla_dias == 0`** **ou vazio)**: Ignorados pelo cálculo de risco de prazo. Contam apenas para o progresso geral e volume de entregas.
 
 ## 6. Tratamento de Edge Cases
 
-1. **Sem histórico (Nenhuma entrega ainda)**: Conforme definido com o usuário, o cálculo assumirá que 100% dos itens contratados estão pendentes, exigindo o tempo máximo de cooldown.
-2. **Contrato já vencido (`dias_restantes < 0`)**: Qualquer entregável com pendências e cooldown ativo será automaticamente marcado como "Em Risco".
+1. **Sem histórico (Nenhuma entrega ainda)**: Conforme definido com o usuário, o cálculo assumirá que 100% dos itens contratados estão pendentes, exigindo o tempo máximo de sla.
+2. **Contrato já vencido (`dias_restantes < 0`)**: Qualquer entregável com pendências e sla ativo será automaticamente marcado como "Em Risco".
 3. **Entregável sem itens pendentes (`pendentes == 0`)**: Status será imediatamente Verde ("Concluído"), isentando o item de cálculos de risco, mesmo que a data esteja próxima.
-4. **Item sem cooldown configurado**: Não participa do cômputo de "Em Risco", não afetando a temperatura de saúde.
+4. **Item sem sla configurado**: Não participa do cômputo de "Em Risco", não afetando a temperatura de saúde.
 
 ## 7. Perguntas/Assunções Restantes (Para Validação)
 
