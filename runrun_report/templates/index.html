@@ -298,12 +298,6 @@
   <!-- ==================== VIEW CTD ==================== -->
   <div id="ctd-view" style="display:none;">
 
-    <!-- Alerta SLA Violation -->
-    <div id="alert-sla-violation" class="alert alert-danger alert-dismissible py-2 mb-3 sla-alert" role="alert" style="display:none;">
-      <strong>🚨 SLA desrespeitado:</strong> <span id="alert-sla-msg"></span>
-      <button type="button" class="btn-close" onclick="this.parentElement.style.display='none'"></button>
-    </div>
-
     <!-- Row 1: KPI cards (5) -->
     <div class="row g-3 mb-3">
       <div class="col-md-2">
@@ -373,26 +367,23 @@
       </div>
     </div>
 
-    <!-- Row 4: Velocidade Mensal + Timeline Snapshots -->
+    <!-- Row 4: Velocidade Mensal + Volume Mensal com Alvo Dinâmico -->
     <div class="row g-3 mb-3">
-      <div class="col-md-7">
+      <div class="col-md-6">
         <div class="chart-wrap"><div id="g-ctd-velocidade"></div></div>
       </div>
-      <div class="col-md-5">
-        <div class="card panel h-100"><div class="card-body">
-          <p class="ctd-section-title">📈 Evolução da Saúde</p>
-          <div id="g-ctd-timeline-snapshots" style="height:200px;"></div>
-        </div></div>
+      <div class="col-md-6">
+        <div class="chart-wrap"><div id="g-ctd-volume-alvo"></div></div>
       </div>
     </div>
 
-    <!-- Row 5: Matriz de Risco + Treemap -->
+    <!-- Row 5: Matriz de Risco (full width) -->
     <div class="row g-3 mb-3">
-      <div class="col-md-8">
+      <div class="col-12">
         <div class="card panel"><div class="card-body">
           <p class="ctd-section-title">🔴 Matriz de Risco por Grupo</p>
-          <div class="table-responsive" style="max-height:380px;overflow-y:auto">
-            <table class="table table-sm table-bordered mb-0">
+          <div class="table-responsive" style="overflow-x:auto;max-height:420px;overflow-y:auto">
+            <table class="table table-sm table-bordered mb-0" style="font-size:11px;">
               <thead style="position:sticky;top:0;z-index:1">
                 <tr><th>Grupo</th><th id="t-matriz-headers"></th></tr>
               </thead>
@@ -401,7 +392,17 @@
           </div>
         </div></div>
       </div>
-      <div class="col-md-4">
+    </div>
+
+    <!-- Row 6: Timeline Snapshots + Treemap -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-5">
+        <div class="card panel h-100"><div class="card-body">
+          <p class="ctd-section-title">📈 Evolução da Saúde</p>
+          <div id="g-ctd-timeline-snapshots" style="height:200px;"></div>
+        </div></div>
+      </div>
+      <div class="col-md-7">
         <div class="chart-wrap"><div id="g-ctd-treemap"></div></div>
       </div>
     </div>
@@ -1401,43 +1402,41 @@ function updateCTD() {
   renderCTDQuaseRisco(viabilidade);
   renderCTDResumoGrupo(viabilidade);
   renderCTDComparativo(snaps, viabilidade);
-  renderCTDAlertSLA(aux.sla_violations);
+  renderCTDVolumeAlvo(aux.monthly_velocity, totalPrev);
 }
 
 // ── 1. Burndown Chart ──
 function renderCTDBurndown(snaps, totalPrev, totalReal) {
   if (!snaps || snaps.length === 0) {
-    Plotly.react('g-ctd-burndown', [], { title: { text: 'Burndown — sem dados históricos' } });
+    Plotly.react('g-ctd-burndown', [], { title: { text: 'Burndown - sem dados historicos', font: { size: 13, family: 'Inter' } } });
     return;
   }
-  const x = snaps.map(s => s.mes_ano);
-  const yIdeal = snaps.map((_, i) => totalPrev * (1 - i / (snaps.length - 1 || 1)));
-  const cumActual = [];
-  let acc = 0;
-  snaps.forEach(s => {
-    // Estima realizado até cada mês pelo health_snapshot (não temos o valor exato aqui,
-    // então usamos a proporção do progresso atual distribuído pelos meses)
-    acc += s.qtd_em_risco >= 0 ? 1 : 0; // placeholder — vamos melhorar
-  });
-  // Melhor abordagem: usar totalReal * (indice / length) como aproximação
-  // Ou podemos usar os dados mensais do backend
-  // Na verdade, vamos usar monthly_velocity se disponível, ou estimar
   const mVel = _data.ctd_aux?.monthly_velocity || [];
-  let cum = 0;
-  const yActual = snaps.map(s => {
-    const match = mVel.find(v => v.mes_ano === s.mes_ano);
-    if (match) cum += match.total;
+  const velMap = {};
+  mVel.forEach(function(v) { velMap[v.mes_ano] = v.total; });
+  var cum = 0;
+  var yActual = snaps.map(function(s) {
+    if (velMap[s.mes_ano]) cum += velMap[s.mes_ano];
     return totalPrev - cum;
   });
+  var n = snaps.length;
+  var yIdeal, xIdeal;
+  if (n > 1) {
+    yIdeal = snaps.map(function(_, i) { return totalPrev * (1 - i / (n - 1)); });
+    xIdeal = snaps.map(function(s) { return s.mes_ano; });
+  } else {
+    yIdeal = [totalPrev, 0];
+    xIdeal = [snaps[0].mes_ano, snaps[0].mes_ano];
+  }
 
   Plotly.react('g-ctd-burndown', [
-    { x, y: yIdeal, type: 'scatter', mode: 'lines', name: 'Ideal',
+    { x: xIdeal, y: yIdeal, type: 'scatter', mode: 'lines', name: 'Ideal',
       line: { color: '#6C757D', dash: 'dash', width: 2 } },
-    { x, y: yActual, type: 'scatter', mode: 'lines+markers', name: 'Real',
+    { x: snaps.map(function(s) { return s.mes_ano; }), y: yActual, type: 'scatter', mode: 'lines+markers', name: 'Real',
       line: { color: BRAND_LIME, width: 3 }, marker: { size: 6 } },
   ], {
-    title: { text: 'Burndown — Saldo Restante', font: { size: 13, family: 'Inter' } },
-    height: 300, margin: { l: 50, r: 30, t: 40, b: 50 },
+    title: { text: 'Burndown - Saldo Restante', font: { size: 13, family: 'Inter' } },
+    height: 280, margin: { l: 50, r: 30, t: 40, b: 50 },
     xaxis: { tickangle: -45 },
     yaxis: { title: 'Itens Restantes' },
     paper_bgcolor: 'white', plot_bgcolor: 'white',
@@ -1504,7 +1503,44 @@ function renderCTDVelocidade(monthlyVelocity, saude) {
   }, { responsive: true, displayModeBar: false });
 }
 
-// ── 4. Timeline Snapshots ──
+// ── 4. Volume Mensal com Alvo Dinamico ──
+function renderCTDVolumeAlvo(monthlyVelocity, totalContrato) {
+  var vel = monthlyVelocity || [];
+  if (vel.length === 0) {
+    Plotly.react('g-ctd-volume-alvo', [], { title: { text: 'Volume Mensal com Alvo Dinamico', font: { size: 13, family: 'Inter' } } });
+    return;
+  }
+  var x = vel.map(function(v) { return v.mes_ano; });
+  var y = vel.map(function(v) { return v.total; });
+  var n = vel.length;
+  var baseMes = totalContrato > 0 ? totalContrato / 12 : 0;
+  var alvos = [], acumFaltou = 0;
+  for (var i = 0; i < n; i++) {
+    var alvoEsteMes = baseMes + acumFaltou / Math.max(1, n - i);
+    alvos.push(alvoEsteMes);
+    var entregue = vel[i].total;
+    var faltou = Math.max(0, alvoEsteMes - entregue);
+    acumFaltou += faltou;
+  }
+
+  Plotly.react('g-ctd-volume-alvo', [
+    { x: x, y: y, type: 'bar', name: 'Realizado',
+      marker: { color: BRAND_LIME },
+      hovertemplate: '%{x}<br>%{y} entregas<extra></extra>' },
+    { x: x, y: alvos, type: 'scatter', mode: 'lines+markers',
+      name: 'Alvo Dinamico',
+      line: { color: '#0D6EFD', width: 2 }, marker: { size: 5 } },
+  ], {
+    title: { text: 'Volume Mensal com Alvo Dinamico', font: { size: 13, family: 'Inter' } },
+    height: 280, margin: { l: 50, r: 30, t: 40, b: 50 },
+    xaxis: { tickangle: -45 },
+    yaxis: { title: 'Qtd' },
+    paper_bgcolor: 'white', plot_bgcolor: 'white',
+    font: { family: 'Inter' },
+  }, { responsive: true, displayModeBar: false });
+}
+
+// ── 5. Timeline Snapshots ──
 function renderCTDTimeline(snaps) {
   const container = document.getElementById('g-ctd-timeline-snapshots');
   if (!snaps || snaps.length === 0) {
@@ -1530,29 +1566,52 @@ function renderCTDTimeline(snaps) {
   container.innerHTML = barHtml;
 }
 
-// ── 5. Treemap ──
+// ── 6. Treemap ──
 function renderCTDTreemap(viabilidade) {
-  if (!viabilidade || viabilidade.length === 0) return;
-  const corMap = { 'Concluído': '#198754', 'No Prazo': '#0D6EFD', 'Em Risco': RED, 'N/A': '#6C757D' };
+  var el = document.getElementById('g-ctd-treemap');
+  if (!viabilidade || viabilidade.length === 0) {
+    Plotly.react('g-ctd-treemap', [], { title: { text: 'Distribuicao do Contrato', font: { size: 13, family: 'Inter' } } });
+    return;
+  }
+  var corMap = { 'Concluido': '#198754', 'No Prazo': '#0D6EFD', 'Em Risco': '#DC3545', 'N/A': '#6C757D' };
+  var grupos = {};
+  viabilidade.forEach(function(v) {
+    if (!grupos[v.grupo]) grupos[v.grupo] = [];
+    grupos[v.grupo].push(v);
+  });
+  var labels = [], parents = [], values = [], colors = [];
+  Object.keys(grupos).forEach(function(g) {
+    var itens = grupos[g];
+    labels.push(g);
+    parents.push('');
+    var totalGrupo = itens.reduce(function(s, v) { return s + v.pendentes + (v.sla_dias > 0 ? v.sla_dias : 1); }, 0);
+    values.push(totalGrupo);
+    colors.push('#6C757D');
+    itens.forEach(function(v) {
+      labels.push(v.entregavel);
+      parents.push(g);
+      values.push(Math.max(1, v.pendentes + (v.sla_dias > 0 ? v.sla_dias : 1)));
+      colors.push(corMap[v.status] || '#6C757D');
+    });
+  });
+
   Plotly.react('g-ctd-treemap', [{
     type: 'treemap',
-    labels: viabilidade.map(v => v.entregavel),
-    parents: viabilidade.map(v => v.grupo || ''),
-    values: viabilidade.map(v => Math.max(1, v.pendentes + (v.sla_dias > 0 ? v.sla_dias : 1))),
-    marker: {
-      colors: viabilidade.map(v => corMap[v.status] || '#6C757D'),
-    },
+    labels: labels,
+    parents: parents,
+    values: values,
+    marker: { colors: colors },
     textinfo: 'label+value',
-    hovertemplate: '<b>%{label}</b><br>Grupo: %{parent}<br>Status: %{color}<extra></extra>',
+    hovertemplate: '<b>%{label}</b><br>Grupo: %{parent}<extra></extra>',
     branchvalues: 'total',
   }], {
-    title: { text: 'Distribuição do Contrato', font: { size: 13, family: 'Inter' } },
-    height: 350, margin: { l: 0, r: 0, t: 40, b: 0 },
+    title: { text: 'Distribuicao do Contrato', font: { size: 13, family: 'Inter' } },
+    height: 330, margin: { l: 0, r: 0, t: 40, b: 0 },
     paper_bgcolor: 'white', font: { family: 'Inter' },
   }, { responsive: true, displayModeBar: false });
 }
 
-// ── 6. KPI: Meta de Entrega ──
+// ── 7. KPI: Meta de Entrega ──
 function renderCTDMeta(meta) {
   if (!meta) {
     document.getElementById('ctd-meta-val').textContent = '—';
@@ -1564,7 +1623,7 @@ function renderCTDMeta(meta) {
     `${meta.pendentes} pendentes em ${meta.dias_restantes} dias (${meta.por_mes}/mês)`;
 }
 
-// ── 7. Top 3 Urgências ──
+// ── 8. Top 3 Urgencias ──
 function renderCTDTop3(emRisco) {
   const container = document.getElementById('ctd-top3-container');
   if (emRisco.length === 0) {
@@ -1581,7 +1640,7 @@ function renderCTDTop3(emRisco) {
   `).join('');
 }
 
-// ── 8. Concluídos do Mês ──
+// ── 9. Concluidos do Mes ──
 function renderCTDConcluidos(viabilidade) {
   const container = document.getElementById('ctd-concluidos-container');
   const concluidos = viabilidade.filter(v => v.status === 'Concluído');
@@ -1594,32 +1653,55 @@ function renderCTDConcluidos(viabilidade) {
   ).join('');
 }
 
-// ── 9. Matriz de Risco por Grupo ──
+// ── 10. Matriz de Risco por Grupo ──
 function renderCTDMatrizRisco(viabilidade) {
-  const grupos = [...new Set(viabilidade.map(v => v.grupo).filter(Boolean))];
-  const entregaveis = viabilidade.map(v => ({ slug: v.slug, nome: v.entregavel }));
-  const headerEl = document.getElementById('t-matriz-headers');
-  headerEl.innerHTML = entregaveis.map(e =>
-    `<th class="text-center heatmap-label">${esc(e.nome)}</th>`
-  ).join('');
-  const bodyEl = document.getElementById('t-ctd-matriz-body');
-  bodyEl.innerHTML = grupos.map(g => {
-    const cells = entregaveis.map(e => {
-      const item = viabilidade.find(v => v.slug === e.slug);
-      if (!item || item.grupo !== g) return '<td></td>';
-      let bg, fg;
-      if (item.status === 'Concluído') { bg = '#d1e7dd'; fg = '#0a3622'; }
+  var headerEl = document.getElementById('t-matriz-headers');
+  var bodyEl = document.getElementById('t-ctd-matriz-body');
+
+  // Agrupa itens por grupo
+  var grupos = {};
+  viabilidade.forEach(function(v) {
+    if (!grupos[v.grupo]) grupos[v.grupo] = [];
+    grupos[v.grupo].push(v);
+  });
+
+  // Lista unica de slugs e nomes (um por entregavel, em ordem de aparicao)
+  var slugsUnicos = [];
+  var slugToNome = {};
+  viabilidade.forEach(function(v) {
+    if (!slugToNome[v.slug]) {
+      slugToNome[v.slug] = v.entregavel;
+      slugsUnicos.push(v.slug);
+    }
+  });
+
+  // Headers: uma coluna por entregavel unico
+  headerEl.innerHTML = slugsUnicos.map(function(slug) {
+    return '<th class="text-center" style="min-width:80px;max-width:120px;font-size:11px;">' + esc(slugToNome[slug]) + '</th>';
+  }).join('');
+
+  // Body: uma linha por grupo
+  var gruposOrdenados = Object.keys(grupos).sort();
+  bodyEl.innerHTML = gruposOrdenados.map(function(g) {
+    var cells = slugsUnicos.map(function(slug) {
+      var item = null;
+      for (var j = 0; j < grupos[g].length; j++) {
+        if (grupos[g][j].slug === slug) { item = grupos[g][j]; break; }
+      }
+      if (!item) return '<td></td>';
+      var bg, fg;
+      if (item.status === 'Concluido') { bg = '#d1e7dd'; fg = '#0a3622'; }
       else if (item.status === 'No Prazo') { bg = '#cfe2ff'; fg = '#052c65'; }
       else if (item.status === 'Em Risco') { bg = '#f8d7da'; fg = '#58151c'; }
       else { bg = '#e2e3e5'; fg = '#41464b'; }
-      let label = item.status === 'Concluído' ? '✓' : item.status === 'Em Risco' ? '⚠' : '•';
-      return `<td class="heatmap-cell" style="background:${bg};color:${fg};">${label}</td>`;
+      var label = item.status === 'Concluido' ? 'OK' : (item.status === 'Em Risco' ? '!' : '-');
+      return '<td class="text-center fw-bold" style="background:' + bg + ';color:' + fg + ';font-size:13px;padding:5px 4px;">' + label + '</td>';
     }).join('');
-    return `<tr><td class="heatmap-label">${esc(g)}</td>${cells}</tr>`;
+    return '<tr><td class="fw-bold" style="font-size:12px;">' + esc(g) + '</td>' + cells + '</tr>';
   }).join('');
 }
 
-// ── 10. Quase em Risco ──
+// ── 11. Quase em Risco ──
 function renderCTDQuaseRisco(viabilidade) {
   const quase = viabilidade
     .filter(v => v.status === 'No Prazo' && v.folga < 30 && v.folga >= 0)
@@ -1641,7 +1723,7 @@ function renderCTDQuaseRisco(viabilidade) {
   `).join('');
 }
 
-// ── 11. Resumo por Grupo ──
+// ── 12. Resumo por Grupo ──
 function renderCTDResumoGrupo(viabilidade) {
   const grupos = {};
   viabilidade.forEach(v => {
@@ -1669,7 +1751,7 @@ function renderCTDResumoGrupo(viabilidade) {
   }).join('');
 }
 
-// ── 12. Comparativo Mês a Mês ──
+// ── 13. Comparativo Mes a Mes ──
 function renderCTDComparativo(snaps, viabilidade) {
   const body = document.getElementById('t-ctd-comparativo-body');
   if (!snaps || snaps.length < 2) {
@@ -1696,39 +1778,29 @@ function renderCTDComparativo(snaps, viabilidade) {
   const slugToName = {};
   viabilidade.forEach(v => { slugToName[v.slug] = v.entregavel; });
 
-  const slugsUnicos = [...new Set([...atuaisRisco, ...passadosRisco])];
-  body.innerHTML = slugsUnicos.map(slug => {
-    const nome = slugToName[slug] || slug;
-    const estava = passadosRisco.includes(slug);
-    const esta = atuaisRisco.includes(slug);
-    let variacao, clr;
-    if (estava && !esta) { variacao = '✅ Melhorou'; clr = GREEN; }
-    else if (!estava && esta) { variacao = '❌ Piorou'; clr = RED; }
-    else if (estava && esta) { variacao = '⚠ Ainda em risco'; clr = ORANGE; }
-    else { variacao = '➡ Estável'; clr = '#6C757D'; }
-    return `<tr>
-      <td>${esc(nome)}</td>
-      <td class="text-center">${estava ? 'Em Risco' : 'OK'}</td>
-      <td class="text-center">${esta ? 'Em Risco' : 'OK'}</td>
-      <td class="text-center fw-bold" style="color:${clr};">${variacao}</td>
-    </tr>`;
-  }).join('');
-}
+  var slugsUnicos = [];
+  atuaisRisco.forEach(function(s) { if (slugsUnicos.indexOf(s) < 0) slugsUnicos.push(s); });
+  passadosRisco.forEach(function(s) { if (slugsUnicos.indexOf(s) < 0) slugsUnicos.push(s); });
 
-// ── 13. Alerta de SLA Violation ──
-function renderCTDAlertSLA(violations) {
-  const alertEl = document.getElementById('alert-sla-violation');
-  const msgEl = document.getElementById('alert-sla-msg');
-  if (!violations || violations.length === 0) {
-    alertEl.style.display = 'none';
+  if (slugsUnicos.length === 0) {
+    body.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Nenhum item em risco nos periodos comparados.</td></tr>';
     return;
   }
-  const nomes = violations.map(v => {
-    const nome = _data.slugToName[v.scope_slug] || v.scope_slug;
-    return `${nome} (${v.intervalo_dias}d entre ${v.data1} e ${v.data2}, SLA: ${v.sla_exigido}d)`;
-  });
-  msgEl.textContent = nomes.join('; ');
-  alertEl.style.display = '';
+
+  body.innerHTML = slugsUnicos.map(function(slug) {
+    var nome = slugToName[slug] || slug;
+    var estava = passadosRisco.indexOf(slug) >= 0;
+    var esta = atuaisRisco.indexOf(slug) >= 0;
+    var variacao, clr;
+    if (estava && !esta) { variacao = 'Melhorou'; clr = '#198754'; }
+    else if (!estava && esta) { variacao = 'Piorou'; clr = '#DC3545'; }
+    else if (estava && esta) { variacao = 'Ainda em risco'; clr = '#FF9F00'; }
+    else { variacao = 'Estavel'; clr = '#6C757D'; }
+    return '<tr><td>' + esc(nome) + '</td>'
+      + '<td class="text-center">' + (estava ? 'Em Risco' : 'OK') + '</td>'
+      + '<td class="text-center">' + (esta ? 'Em Risco' : 'OK') + '</td>'
+      + '<td class="text-center fw-bold" style="color:' + clr + ';">' + variacao + '</td></tr>';
+  }).join('');
 }
 
 // ── 14. Toggle Comparativo ──
