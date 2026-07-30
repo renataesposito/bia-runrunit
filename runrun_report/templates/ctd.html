@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Núclea — CTD (SLA-to-Delivery)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --brand-dark: #1A1A1A;
+      --brand-lime: #9e91c8;
+      --brand-mint: #66FECB;
+    }
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    body { background: #F4F4F4; }
+
+    /* ── Header ── */
+    #site-header {
+      background: var(--brand-dark);
+      padding: 14px 24px 12px;
+      border-bottom: 3px solid var(--brand-lime);
+    }
+    .brand-logo  { display:flex; align-items:center; gap:10px; }
+    .brand-title { color: var(--brand-lime); font-size:14px; font-weight:600; }
+    #header-sub  { color:#888; font-size:11px; margin-top:4px; margin-bottom:0; }
+    .header-right { margin-left:auto; display:flex; align-items:center; gap:12px; }
+
+    /* ── View Toggle ── */
+    .view-toggle {
+      display:flex; background:#333; border-radius:6px; overflow:hidden;
+    }
+    .view-toggle button {
+      background:transparent; border:none; color:#888; padding:6px 14px;
+      font-size:12px; font-weight:500; cursor:pointer; transition:all .2s;
+    }
+    .view-toggle button.active {
+      background:var(--brand-lime); color:var(--brand-dark);
+    }
+    .view-toggle button:hover:not(.active) { color:#fff; }
+
+    /* ── Layout ── */
+    .content-wrap { padding: 16px 24px; }
+    .kpi-card  { border:none; box-shadow:0 1px 4px rgba(0,0,0,.08); border-radius:8px; }
+    .kpi-title { font-size:12px; color:#6C757D; margin-bottom:4px; font-weight:500; }
+    .kpi-value { font-size:28px; font-weight:700; line-height:1.1; margin-bottom:2px; }
+    .kpi-sub   { font-size:11px; color:#6C757D; }
+    .kpi-accent { border-top: 3px solid var(--brand-lime); }
+    .panel     { border:none; box-shadow:0 1px 4px rgba(0,0,0,.08); border-radius:8px; }
+    .chart-wrap { background:white; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,.08); padding:8px; }
+    .sec-title  { color: var(--brand-dark); font-weight:700; font-size:14px; }
+
+    /* ── Tables ── */
+    table thead th {
+      background: var(--brand-dark);
+      color: white;
+      font-size:12px; font-weight:600; white-space:nowrap;
+    }
+    table td { font-size:12px; padding:5px 8px !important; vertical-align:middle; }
+    .td-trunc { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    /* ── Badges ── */
+    .badge-warn { background:#FFC107; color:#212529; }
+
+    /* ── CTD extras ── */
+    .ctd-urg-card { border-radius:8px; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.08); padding:10px 14px; }
+    .ctd-urg-num { font-size:22px; font-weight:700; line-height:1.1; }
+    .ctd-urg-label { font-size:10px; color:#6C757D; }
+    .concluido-pill { font-size:11px; padding:3px 10px; border-radius:20px; background:#d1e7dd; color:#0a3622; display:inline-block; margin:2px 3px; white-space:nowrap; }
+    .saude-verde { color:#198754; }
+    .saude-amarelo { color:#FF9F00; }
+    .saude-vermelho { color:#DC3545; }
+    .bg-saude-verde { background:#198754; }
+    .bg-saude-amarelo { background:#FF9F00; }
+    .bg-saude-vermelho { background:#DC3545; }
+    .heatmap-cell { text-align:center; font-weight:600; font-size:12px; padding:4px 6px; min-width:70px; border-radius:3px; }
+    .heatmap-label { font-size:11px; color:#212529; font-weight:500; padding:4px 6px; }
+    .sla-alert { font-size:12px; }
+    .meta-card { border-left:3px solid var(--brand-lime); }
+    .timeline-bar { height:16px; border-radius:4px; margin:2px 0; transition:width .5s; }
+    .collapsible-toggle { cursor:pointer; user-select:none; }
+    .collapsible-toggle:hover { opacity:.7; }
+    .ctd-section-title { font-size:13px; font-weight:700; color:var(--brand-dark); margin-bottom:10px; }
+
+    /* ── Loading ── */
+    #loading {
+      position:fixed; inset:0; background:rgba(255,255,255,.95);
+      display:flex; align-items:center; justify-content:center; z-index:9999;
+    }
+    #error-msg { display:none; color:#DC3545; margin-top:12px; font-size:14px; }
+  </style>
+</head>
+<body>
+
+<div id="loading" role="status" aria-label="Carregando dados">
+  <div class="text-center">
+    <div class="spinner-border" style="width:3rem;height:3rem;color:#1A1A1A" aria-hidden="true"></div>
+    <p class="mt-3 text-muted">Carregando dados do RunRun.it…</p>
+    <p id="error-msg"></p>
+  </div>
+</div>
+
+<!-- HEADER NÚCLEA -->
+<header id="site-header">
+  <div class="brand-logo">
+    <img src="/static/nuclea-logo.png"
+         alt="Logo Núclea"
+         style="height:36px;width:auto;filter:invert(1) brightness(2)">
+    <div style="border-left:1px solid #444;padding-left:14px">
+      <span class="brand-title">YESH HUB CTD</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="view-toggle">
+      <button onclick="window.location.href='/'">Anual / Mensal</button>
+      <button class="active" onclick="window.location.href='/ctd'">CTD</button>
+    </div>
+    <span id="last-update" style="font-size:11px;color:#aaa;">Última atualização: —</span>
+  </div>
+  <p id="header-sub">Escopo: YESH HUB  |  A partir de 01/03/2026</p>
+</header>
+
+<div class="content-wrap">
+
+  <!-- ==================== VIEW CTD ==================== -->
+  <div id="ctd-view">
+
+    <!-- Row 1: KPI cards (5) -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-2">
+        <div class="card kpi-card kpi-accent h-100" id="card-ctd-saude"><div class="card-body">
+          <p class="kpi-title">Saúde do Contrato</p>
+          <div class="kpi-value" id="ctd-saude-val">—</div>
+          <small class="kpi-sub" id="ctd-saude-sub">Status geral</small>
+        </div></div>
+      </div>
+      <div class="col-md-2">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">Tipos em Risco</p>
+          <div class="kpi-value" id="ctd-risco-val" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub">Entregáveis atrasados</small>
+        </div></div>
+      </div>
+      <div class="col-md-2">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">Dias Restantes</p>
+          <div class="kpi-value" id="ctd-dias-val" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub" id="ctd-dias-sub">Até fim do contrato</small>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100"><div class="card-body">
+          <p class="kpi-title">Progresso CTD</p>
+          <div class="kpi-value" id="ctd-prog-val" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub">Realizado / Contratado</small>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card kpi-card kpi-accent h-100 meta-card"><div class="card-body">
+          <p class="kpi-title">📋 Meta de Entrega</p>
+          <div class="kpi-value" id="ctd-meta-val" style="color:#1A1A1A">—</div>
+          <small class="kpi-sub" id="ctd-meta-sub">para cumprir o contrato</small>
+        </div></div>
+      </div>
+    </div>
+
+    <!-- Row 2: Top 3 Urgências + Concluídos do Mês -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-8">
+        <div class="card panel h-100"><div class="card-body">
+          <p class="ctd-section-title">🚨 Top 3 Urgências</p>
+          <div id="ctd-top3-container" style="display:flex;gap:10px;flex-wrap:wrap;">
+            <div class="text-muted" style="font-size:12px;">Nenhum item em risco.</div>
+          </div>
+        </div></div>
+      </div>
+      <div class="col-md-4">
+        <div class="card panel h-100"><div class="card-body">
+          <p class="ctd-section-title">✅ Concluídos do Mês</p>
+          <div id="ctd-concluidos-container">
+            <span class="text-muted" style="font-size:12px;">Nenhum entregável concluído.</span>
+          </div>
+        </div></div>
+      </div>
+    </div>
+
+    <!-- Row 3: Burndown + Folga -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-7">
+        <div class="chart-wrap"><div id="g-ctd-burndown"></div></div>
+      </div>
+      <div class="col-md-5">
+        <div class="chart-wrap"><div id="g-ctd-folga"></div></div>
+      </div>
+    </div>
+
+    <!-- Row 4: Velocidade + Volume Alvo -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="chart-wrap"><div id="g-ctd-velocidade"></div></div>
+      </div>
+      <div class="col-md-6">
+        <div class="chart-wrap"><div id="g-ctd-volume-alvo"></div></div>
+      </div>
+    </div>
+
+    <!-- Row 5: Matriz de Risco (full width) -->
+    <div class="row g-3 mb-3">
+      <div class="col-12">
+        <div class="card panel"><div class="card-body">
+          <p class="ctd-section-title">🔴 Matriz de Risco por Grupo</p>
+          <div class="table-responsive" style="overflow-x:auto;max-height:420px;overflow-y:auto">
+            <table class="table table-sm table-bordered mb-0" style="font-size:11px;">
+              <thead style="position:sticky;top:0;z-index:1">
+                <tr><th>Grupo</th><th id="t-matriz-headers"></th></tr>
+              </thead>
+              <tbody id="t-ctd-matriz-body"></tbody>
+            </table>
+          </div>
+        </div></div>
+      </div>
+    </div>
+
+    <!-- Row 6: Timeline + Treemap -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-5">
+        <div class="card panel h-100"><div class="card-body">
+          <p class="ctd-section-title">📈 Evolução da Saúde</p>
+          <div id="g-ctd-timeline-snapshots" style="height:200px;"></div>
+        </div></div>
+      </div>
+      <div class="col-md-7">
+        <div class="chart-wrap"><div id="g-ctd-treemap"></div></div>
+      </div>
+    </div>
+
+    <!-- Row 7: Ações Recomendadas + Itens Quase em Risco -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="card panel border-danger h-100" id="panel-acoes-rec" style="display:none;">
+          <div class="card-body">
+            <p class="ctd-section-title text-danger">⚠ Ação Recomendada (Itens em Risco)</p>
+            <div class="table-responsive" style="max-height:250px;overflow-y:auto">
+              <table class="table table-sm mb-0">
+                <thead><tr>
+                  <th>Entregável</th><th class="text-center">Pendentes</th>
+                  <th class="text-center">SLA</th><th class="text-center">Dias Mín.</th>
+                  <th class="text-center">Restam</th><th>Status</th>
+                </tr></thead>
+                <tbody id="t-ctd-acoes-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card panel border-warning h-100" id="panel-quase-risco" style="display:none;">
+          <div class="card-body">
+            <p class="ctd-section-title text-warning">⚠ Quase em Risco (folga &lt; 30 dias)</p>
+            <div class="table-responsive" style="max-height:250px;overflow-y:auto">
+              <table class="table table-sm mb-0">
+                <thead><tr>
+                  <th>Entregável</th><th class="text-center">Folga</th>
+                  <th class="text-center">SLA</th><th class="text-center">Pendentes</th>
+                </tr></thead>
+                <tbody id="t-ctd-quase-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 8: Resumo por Grupo -->
+    <div class="card panel mb-3">
+      <div class="card-body">
+        <p class="ctd-section-title">📊 Resumo por Grupo</p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered mb-0">
+            <thead>
+              <tr>
+                <th>Grupo</th><th class="text-center">Itens</th>
+                <th class="text-center">Em Risco</th><th class="text-center">% Saudável</th>
+                <th class="text-center">Pendentes Total</th><th class="text-center">Folga Média</th>
+              </tr>
+            </thead>
+            <tbody id="t-ctd-resumo-grupo-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 9: Comparativo Mês a Mês (collapsible) -->
+    <div class="card panel mb-3">
+      <div class="card-body">
+        <p class="ctd-section-title collapsible-toggle" onclick="toggleComparativo()">
+          📆 Comparativo Mês a Mês <span id="ctd-comp-toggle">▶</span>
+        </p>
+        <div id="ctd-comparativo-content" style="display:none;">
+          <div class="table-responsive" style="max-height:400px;overflow-y:auto">
+            <table class="table table-sm table-bordered mb-0">
+              <thead style="position:sticky;top:0;z-index:1">
+                <tr>
+                  <th>Entregável</th><th class="text-center">Mês Passado</th>
+                  <th class="text-center">Mês Atual</th><th class="text-center">Variação</th>
+                </tr>
+              </thead>
+              <tbody id="t-ctd-comparativo-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 10: Viabilidade CTD (Completa) -->
+    <div class="card panel mb-4">
+      <div class="card-body">
+        <p class="sec-title mb-2">Viabilidade CTD por Entregável</p>
+        <div class="table-responsive" style="max-height:480px;overflow-y:auto">
+          <table class="table table-sm table-bordered mb-0">
+            <thead style="position:sticky;top:0;z-index:1">
+              <tr>
+                <th>Grupo</th><th>Entregável</th>
+                <th class="text-center">Pendentes</th><th class="text-center">SLA (dias)</th>
+                <th class="text-center">Mín. Necessário</th><th class="text-center">Restantes</th>
+                <th class="text-center">Folga</th><th class="text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody id="t-ctd-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div> <!-- /ctd-view -->
+
+</div><!-- /content-wrap -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script>
+// #coresctd - Constantes de cor
+const BRAND_DARK = '#1A1A1A';
+const BRAND_LIME = '#9e91c8';
+const GREEN      = '#9e91c8';
+const ORANGE     = '#E8710A';
+const RED        = '#DC3545';
+
+// Estado global
+let _data = null;
+
+// ─── utilitário ──────────────────────────────────────────────────────────
+function esc(v) {
+  if (v == null) return '';
+  return String(v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── inicialização ────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const res = await fetch('/api/data');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    _data = await res.json();
+  } catch (err) {
+    const msg = document.getElementById('error-msg');
+    msg.style.display = 'block';
+    msg.textContent = 'Erro ao carregar dados: ' + err.message + '. Verifique o servidor.';
+    return;
+  }
+
+  _data.slugToName = {};
+  _data.escopo.forEach(function(e) { _data.slugToName[e.slug] = e.entregavel; });
+
+  document.getElementById('header-sub').textContent =
+    'Escopo: ' + _data.kpis.escopo_nome + '  |  A partir de 01/03/2026  |  ' + Math.round(_data.kpis.meses_decorridos) + ' meses decorridos';
+
+  updateCTD();
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ─── checkDebugMode ───────────────────────────────────────────────────────
+async function checkDebugMode() {
+  try {
+    const res = await fetch('/api/debug/status');
+    const data = await res.json();
+    if (data.last_sync && data.last_sync.completed_at) {
+      const dt = new Date(data.last_sync.completed_at);
+      document.getElementById('last-update').textContent = 'Última atualização: ' + dt.toLocaleString('pt-BR');
+    }
+  } catch (err) {
+    // Debug endpoint não disponível
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FUNÇÕES CTD
+// ═══════════════════════════════════════════════════════════════════════════
+
+function updateCTD() {
+  if (!_data || !_data.ctd) return;
+
+  const ctd = _data.ctd;
+  const saude = ctd.saude;
+  const viabilidade = ctd.viabilidade;
+  const aux = _data.ctd_aux || {};
+  const snaps = _data.ctd_snapshots || [];
+
+  // ── KPIs base ──
+  const cardSaude = document.getElementById('card-ctd-saude');
+  const valSaude = document.getElementById('ctd-saude-val');
+  if (saude.status_geral === 'Verde') {
+    valSaude.textContent = 'Saudável';
+    valSaude.style.color = GREEN;
+    cardSaude.style.borderTopColor = GREEN;
+  } else if (saude.status_geral === 'Amarelo') {
+    valSaude.textContent = 'Atenção';
+    valSaude.style.color = ORANGE;
+    cardSaude.style.borderTopColor = ORANGE;
+  } else {
+    valSaude.textContent = 'Crítico';
+    valSaude.style.color = RED;
+    cardSaude.style.borderTopColor = RED;
+  }
+  document.getElementById('ctd-risco-val').textContent = saude.qtd_em_risco;
+  document.getElementById('ctd-risco-val').style.color = saude.qtd_em_risco > 0 ? RED : GREEN;
+  document.getElementById('ctd-dias-val').textContent = saude.dias_restantes;
+  const totalPrev = _data.kpis.total_contrato;
+  const totalReal = _data.kpis.total_realizado;
+  const progPct = totalPrev ? Math.round(1000 * totalReal / totalPrev) / 10 : 0;
+  document.getElementById('ctd-prog-val').textContent = progPct + '%';
+
+  // ── Tabela Viabilidade ──
+  const tbody = document.getElementById('t-ctd-body');
+  tbody.innerHTML = viabilidade.map(function(v) {
+    let stBadge = '';
+    if (v.status === 'Concluído') stBadge = '<span class="badge bg-success">Concluído</span>';
+    else if (v.status === 'Em Risco') stBadge = '<span class="badge bg-danger">Em Risco</span>';
+    else if (v.status === 'No Prazo') stBadge = '<span class="badge bg-info text-dark">No Prazo</span>';
+    else stBadge = '<span class="badge bg-secondary">N/A</span>';
+    return '<tr>'
+      + '<td>' + esc(v.grupo) + '</td><td>' + esc(v.entregavel) + '</td>'
+      + '<td class="text-center fw-bold">' + v.pendentes + '</td>'
+      + '<td class="text-center">' + v.sla_dias + '</td>'
+      + '<td class="text-center">' + v.dias_minimos + '</td>'
+      + '<td class="text-center">' + v.dias_restantes + '</td>'
+      + '<td class="text-center" style="color:' + (v.folga < 0 ? RED : BRAND_DARK) + '">' + v.folga + '</td>'
+      + '<td class="text-center">' + stBadge + '</td></tr>';
+  }).join('');
+
+  // ── Ações Recomendadas ──
+  const emRisco = viabilidade.filter(function(v) { return v.status === 'Em Risco'; });
+  const acoesPanel = document.getElementById('panel-acoes-rec');
+  const acoesBody = document.getElementById('t-ctd-acoes-body');
+  if (emRisco.length > 0) {
+    acoesPanel.style.display = '';
+    acoesBody.innerHTML = emRisco.map(function(v) {
+      return '<tr>'
+        + '<td>' + esc(v.entregavel) + '</td>'
+        + '<td class="text-center fw-bold">' + v.pendentes + '</td>'
+        + '<td class="text-center">' + v.sla_dias + '</td>'
+        + '<td class="text-center">' + v.dias_minimos + '</td>'
+        + '<td class="text-center">' + v.dias_restantes + '</td>'
+        + '<td><span class="badge bg-danger">Atrasado (' + Math.abs(v.folga) + ' dias)</span></td></tr>';
+    }).join('');
+  } else {
+    acoesPanel.style.display = 'none';
+  }
+
+  // ── Todos os sub-renderers ──
+  renderCTDBurndown(snaps, totalPrev, totalReal);
+  renderCTDFolga(viabilidade);
+  renderCTDVelocidade(aux.monthly_velocity, saude);
+  renderCTDTimeline(snaps);
+  renderCTDTreemap(viabilidade);
+  renderCTDMeta(aux.delivery_meta);
+  renderCTDTop3(emRisco);
+  renderCTDConcluidos(viabilidade);
+  renderCTDMatrizRisco(viabilidade);
+  renderCTDQuaseRisco(viabilidade);
+  renderCTDResumoGrupo(viabilidade);
+  renderCTDComparativo(snaps, viabilidade);
+  renderCTDVolumeAlvo(aux.monthly_velocity, totalPrev);
+}
+
+// ── 1. Burndown Chart ──
+function renderCTDBurndown(snaps, totalPrev, totalReal) {
+  if (!snaps || snaps.length === 0) {
+    Plotly.react('g-ctd-burndown', [], { title: { text: 'Burndown - sem dados historicos', font: { size: 13, family: 'Inter' } } });
+    return;
+  }
+  const mVel = _data.ctd_aux?.monthly_velocity || [];
+  const velMap = {};
+  mVel.forEach(function(v) { velMap[v.mes_ano] = v.total; });
+  var cum = 0;
+  var yActual = snaps.map(function(s) {
+    if (velMap[s.mes_ano]) cum += velMap[s.mes_ano];
+    return totalPrev - cum;
+  });
+  var n = snaps.length;
+  var yIdeal, xIdeal;
+  if (n > 1) {
+    yIdeal = snaps.map(function(_, i) { return totalPrev * (1 - i / (n - 1)); });
+    xIdeal = snaps.map(function(s) { return s.mes_ano; });
+  } else {
+    yIdeal = [totalPrev, 0];
+    xIdeal = [snaps[0].mes_ano, snaps[0].mes_ano];
+  }
+
+  Plotly.react('g-ctd-burndown', [
+    { x: xIdeal, y: yIdeal, type: 'scatter', mode: 'lines', name: 'Ideal',
+      line: { color: '#6C757D', dash: 'dash', width: 2 } },
+    { x: snaps.map(function(s) { return s.mes_ano; }), y: yActual, type: 'scatter', mode: 'lines+markers', name: 'Real',
+      line: { color: BRAND_LIME, width: 3 }, marker: { size: 6 } },
+  ], {
+    title: { text: 'Burndown - Saldo Restante', font: { size: 13, family: 'Inter' } },
+    height: 280, margin: { l: 50, r: 30, t: 40, b: 50 },
+    xaxis: { tickangle: -45 },
+    yaxis: { title: 'Itens Restantes' },
+    paper_bgcolor: 'white', plot_bgcolor: 'white',
+    font: { family: 'Inter' },
+    hovermode: 'x unified',
+  }, { responsive: true, displayModeBar: false });
+}
+
+// ── 2. Folga ──
+function renderCTDFolga(viabilidade) {
+  const comSLA = viabilidade
+    .filter(function(v) { return v.sla_dias > 0 && v.status !== 'Concluído'; })
+    .sort(function(a, b) { return a.folga - b.folga; });
+  if (comSLA.length === 0) {
+    Plotly.react('g-ctd-folga', [], { title: { text: 'Folga por Entregavel', font: { size: 13 } } });
+    return;
+  }
+  const labels = comSLA.map(function(v) { return v.entregavel.length > 25 ? v.entregavel.slice(0, 22) + '...' : v.entregavel; });
+  const values = comSLA.map(function(v) { return v.folga; });
+  const colors = comSLA.map(function(v) { return v.folga >= 0 ? '#198754' : RED; });
+
+  Plotly.react('g-ctd-folga', [{
+    x: values, y: labels, type: 'bar', orientation: 'h',
+    marker: { color: colors },
+    hovertemplate: '%{y}<br>Folga: %{x} dias<extra></extra>',
+  }], {
+    title: { text: 'Folga por Entregavel (dias)', font: { size: 13, family: 'Inter' } },
+    height: 280, margin: { l: 160, r: 30, t: 40, b: 40 },
+    xaxis: { title: 'Dias' },
+    yaxis: { autorange: 'reversed', tickfont: { size: 10 } },
+    paper_bgcolor: 'white', plot_bgcolor: 'white',
+    font: { family: 'Inter' },
+  }, { responsive: true, displayModeBar: false });
+}
+
+// ── 3. Velocidade Mensal ──
+function renderCTDVelocidade(monthlyVelocity, saude) {
+  const vel = monthlyVelocity || [];
+  if (vel.length === 0) {
+    Plotly.react('g-ctd-velocidade', [], { title: { text: 'Velocidade Mensal', font: { size: 13 } } });
+    return;
+  }
+  const x = vel.map(function(v) { return v.mes_ano; });
+  const y = vel.map(function(v) { return v.total; });
+  const diasRest = saude.dias_restantes || 1;
+  const pendentes = _data.ctd_aux?.delivery_meta?.pendentes || 0;
+  const metaMes = pendentes > 0 ? pendentes / Math.max(1, diasRest / 30) : 0;
+
+  Plotly.react('g-ctd-velocidade', [
+    { x: x, y: y, type: 'bar', name: 'Entregas',
+      marker: { color: BRAND_LIME },
+      hovertemplate: '%{x}<br>%{y} entregas<extra></extra>' },
+    { x: x, y: x.map(function() { return metaMes; }), type: 'scatter', mode: 'lines',
+      name: 'Meta (' + metaMes.toFixed(1) + '/mes)',
+      line: { color: RED, dash: 'dash', width: 2 } },
+  ], {
+    title: { text: 'Velocidade Mensal de Entregas', font: { size: 13, family: 'Inter' } },
+    height: 280, margin: { l: 50, r: 30, t: 40, b: 50 },
+    xaxis: { tickangle: -45 },
+    yaxis: { title: 'Qtd' },
+    paper_bgcolor: 'white', plot_bgcolor: 'white',
+    font: { family: 'Inter' },
+  }, { responsive: true, displayModeBar: false });
+}
+
+// ── 4. Volume Mensal com Alvo Dinamico ──
+function renderCTDVolumeAlvo(monthlyVelocity, totalContrato) {
+  var vel = monthlyVelocity || [];
+  if (vel.length === 0) {
+    Plotly.react('g-ctd-volume-alvo', [], { title: { text: 'Volume Mensal com Alvo Dinamico', font: { size: 13, family: 'Inter' } } });
+    return;
+  }
+  var x = vel.map(function(v) { return v.mes_ano; });
+  var y = vel.map(function(v) { return v.total; });
+  var MES_INICIO = 3;
+  var ANO_INICIO = 2026;
+  var TOTAL_MESES = 12;
+  var alvos = [], cumReal = 0;
+  for (var i = 0; i < vel.length; i++) {
+    var mesAno = vel[i].mes_ano;
+    var ano = parseInt(mesAno.slice(0, 4), 10);
+    var mes = parseInt(mesAno.slice(5, 7), 10);
+    var mesIndex = (ano - ANO_INICIO) * 12 + (mes - MES_INICIO);
+    var restante = totalContrato - cumReal;
+    var mesesRestam = TOTAL_MESES - mesIndex;
+    var alvo = mesesRestam > 0 ? restante / mesesRestam : 0;
+    alvos.push(Math.round(alvo * 10) / 10);
+    cumReal += vel[i].total;
+  }
+
+  Plotly.react('g-ctd-volume-alvo', [
+    { x: x, y: y, type: 'bar', name: 'Realizado',
+      marker: { color: BRAND_LIME },
+      hovertemplate: '%{x}<br>%{y} entregas<extra></extra>' },
+    { x: x, y: alvos, type: 'scatter', mode: 'lines+markers',
+      name: 'Alvo Dinamico',
+      line: { color: '#0D6EFD', width: 2 }, marker: { size: 5 } },
+  ], {
+    title: { text: 'Volume Mensal com Alvo Dinamico', font: { size: 13, family: 'Inter' } },
+    height: 280, margin: { l: 50, r: 30, t: 40, b: 50 },
+    xaxis: { tickangle: -45 },
+    yaxis: { title: 'Qtd' },
+    paper_bgcolor: 'white', plot_bgcolor: 'white',
+    font: { family: 'Inter' },
+  }, { responsive: true, displayModeBar: false });
+}
+
+// ── 5. Timeline Snapshots ──
+function renderCTDTimeline(snaps) {
+  const container = document.getElementById('g-ctd-timeline-snapshots');
+  if (!snaps || snaps.length === 0) {
+    container.innerHTML = '<div class="text-muted text-center py-4" style="font-size:12px;">Sem historico de snapshots.</div>';
+    return;
+  }
+  const maxRisk = Math.max(1, ...snaps.map(function(s) { return s.qtd_em_risco; }));
+  const barHtml = snaps.map(function(s) {
+    const pct = (s.qtd_em_risco / maxRisk) * 100;
+    var color;
+    if (s.status_geral === 'Verde') color = '#198754';
+    else if (s.status_geral === 'Amarelo') color = '#FF9F00';
+    else color = '#DC3545';
+    const label = s.mes_ano.slice(5) + '/' + s.mes_ano.slice(2, 4);
+    return '<div style="display:flex;align-items:center;margin-bottom:4px;gap:6px;font-size:11px;">'
+      + '<span style="min-width:50px;color:#6C757D;">' + label + '</span>'
+      + '<div style="flex:1;background:#f0f0f0;border-radius:4px;height:16px;">'
+      + '<div class="timeline-bar" style="width:' + Math.max(4, pct) + '%;background:' + color + ';"></div></div>'
+      + '<span style="min-width:20px;font-weight:600;color:' + color + ';">' + s.qtd_em_risco + '</span></div>';
+  }).join('');
+  container.innerHTML = barHtml;
+}
+
+// ── 6. Treemap ──
+function renderCTDTreemap(viabilidade) {
+  if (!viabilidade || viabilidade.length === 0) {
+    Plotly.react('g-ctd-treemap', [], { title: { text: 'Distribuicao do Contrato', font: { size: 13, family: 'Inter' } } });
+    return;
+  }
+  var corMap = { 'Concluido': '#198754', 'No Prazo': '#0D6EFD', 'Em Risco': '#DC3545', 'N/A': '#6C757D' };
+  var grupos = {};
+  viabilidade.forEach(function(v) {
+    if (!grupos[v.grupo]) grupos[v.grupo] = [];
+    grupos[v.grupo].push(v);
+  });
+  var labels = [], parents = [], values = [], colors = [];
+  Object.keys(grupos).forEach(function(g) {
+    var itens = grupos[g];
+    labels.push(g);
+    parents.push('');
+    var totalGrupo = itens.reduce(function(s, v) { return s + v.pendentes + (v.sla_dias > 0 ? v.sla_dias : 1); }, 0);
+    values.push(totalGrupo);
+    colors.push('#6C757D');
+    itens.forEach(function(v) {
+      labels.push(v.entregavel);
+      parents.push(g);
+      values.push(Math.max(1, v.pendentes + (v.sla_dias > 0 ? v.sla_dias : 1)));
+      colors.push(corMap[v.status] || '#6C757D');
+    });
+  });
+
+  Plotly.react('g-ctd-treemap', [{
+    type: 'treemap',
+    labels: labels,
+    parents: parents,
+    values: values,
+    marker: { colors: colors },
+    textinfo: 'label+value',
+    hovertemplate: '<b>%{label}</b><br>Grupo: %{parent}<extra></extra>',
+    branchvalues: 'total',
+  }], {
+    title: { text: 'Distribuicao do Contrato', font: { size: 13, family: 'Inter' } },
+    height: 330, margin: { l: 0, r: 0, t: 40, b: 0 },
+    paper_bgcolor: 'white', font: { family: 'Inter' },
+  }, { responsive: true, displayModeBar: false });
+}
+
+// ── 7. KPI: Meta de Entrega ──
+function renderCTDMeta(meta) {
+  if (!meta) {
+    document.getElementById('ctd-meta-val').textContent = '---';
+    document.getElementById('ctd-meta-sub').textContent = 'para cumprir o contrato';
+    return;
+  }
+  document.getElementById('ctd-meta-val').textContent = meta.por_dia + '/dia';
+  document.getElementById('ctd-meta-sub').textContent =
+    meta.pendentes + ' pendentes em ' + meta.dias_restantes + ' dias (' + meta.por_mes + '/mes)';
+}
+
+// ── 8. Top 3 Urgencias ──
+function renderCTDTop3(emRisco) {
+  const container = document.getElementById('ctd-top3-container');
+  if (emRisco.length === 0) {
+    container.innerHTML = '<div class="text-muted" style="font-size:12px;">Nenhum item em risco.</div>';
+    return;
+  }
+  const top3 = emRisco.slice().sort(function(a, b) { return a.folga - b.folga; }).slice(0, 3);
+  container.innerHTML = top3.map(function(v) {
+    return '<div class="ctd-urg-card" style="flex:1;min-width:140px;">'
+      + '<div class="ctd-urg-label">' + esc(v.grupo) + '</div>'
+      + '<div class="ctd-urg-num" style="color:' + RED + ';">' + Math.abs(v.folga) + ' dias</div>'
+      + '<div class="ctd-urg-label">' + esc(v.entregavel) + ' - ' + v.pendentes + ' pendente(s)</div></div>';
+  }).join('');
+}
+
+// ── 9. Concluidos do Mes ──
+function renderCTDConcluidos(viabilidade) {
+  const container = document.getElementById('ctd-concluidos-container');
+  const concluidos = viabilidade.filter(function(v) { return v.status === 'Concluido'; });
+  if (concluidos.length === 0) {
+    container.innerHTML = '<span class="text-muted" style="font-size:12px;">Nenhum entregavel concluido.</span>';
+    return;
+  }
+  container.innerHTML = concluidos.map(function(v) {
+    return '<span class="concluido-pill">' + esc(v.entregavel) + '</span>';
+  }).join('');
+}
+
+// ── 10. Matriz de Risco por Grupo ──
+function renderCTDMatrizRisco(viabilidade) {
+  var headerEl = document.getElementById('t-matriz-headers');
+  var bodyEl = document.getElementById('t-ctd-matriz-body');
+
+  var grupos = {};
+  viabilidade.forEach(function(v) {
+    if (!grupos[v.grupo]) grupos[v.grupo] = [];
+    grupos[v.grupo].push(v);
+  });
+
+  var slugsUnicos = [];
+  var slugToNome = {};
+  viabilidade.forEach(function(v) {
+    if (!slugToNome[v.slug]) {
+      slugToNome[v.slug] = v.entregavel;
+      slugsUnicos.push(v.slug);
+    }
+  });
+
+  headerEl.innerHTML = slugsUnicos.map(function(slug) {
+    var nome = esc(slugToNome[slug]);
+    if (nome.length > 15) {
+      var partes = nome.split(' ');
+      var linha1 = '', linha2 = '';
+      for (var p = 0; p < partes.length; p++) {
+        if ((linha1 + ' ' + partes[p]).length < 14) {
+          linha1 += (linha1 ? ' ' : '') + partes[p];
+        } else {
+          linha2 += (linha2 ? ' ' : '') + partes[p];
+        }
+      }
+      nome = linha1 + '<br>' + linha2;
+    }
+    return '<th class="text-center align-middle" style="min-width:70px;font-size:10px;line-height:1.2;white-space:normal;word-wrap:break-word;">' + nome + '</th>';
+  }).join('');
+
+  var legendaHtml = '<tr><td class="fw-bold" style="font-size:10px;color:#6C757D;">Status</td>';
+  legendaHtml += slugsUnicos.map(function(slug) {
+    var item = null;
+    for (var g in grupos) {
+      for (var j = 0; j < grupos[g].length; j++) {
+        if (grupos[g][j].slug === slug) { item = grupos[g][j]; break; }
+      }
+      if (item) break;
+    }
+    if (!item) return '<td class="text-center" style="font-size:10px;color:#6C757D;">N/A</td>';
+    return '<td class="text-center" style="font-size:10px;color:#6C757D;">' + item.status + '</td>';
+  }).join('');
+  legendaHtml += '</tr>';
+
+  var gruposOrdenados = Object.keys(grupos).sort();
+  bodyEl.innerHTML = legendaHtml + gruposOrdenados.map(function(g) {
+    var cells = slugsUnicos.map(function(slug) {
+      var item = null;
+      for (var j = 0; j < grupos[g].length; j++) {
+        if (grupos[g][j].slug === slug) { item = grupos[g][j]; break; }
+      }
+      if (!item) return '<td></td>';
+      var bg, fg;
+      if (item.status === 'Concluido') { bg = '#d1e7dd'; fg = '#0a3622'; }
+      else if (item.status === 'No Prazo') { bg = '#cfe2ff'; fg = '#052c65'; }
+      else if (item.status === 'Em Risco') { bg = '#f8d7da'; fg = '#58151c'; }
+      else { bg = '#e2e3e5'; fg = '#41464b'; }
+      var label = item.status === 'Concluido' ? 'OK' : (item.status === 'Em Risco' ? '!' : '-');
+      return '<td class="text-center fw-bold" style="background:' + bg + ';color:' + fg + ';font-size:12px;padding:4px 2px;border:1px solid #dee2e6;">' + label + '</td>';
+    }).join('');
+    return '<tr><td class="fw-bold" style="font-size:12px;">' + esc(g) + '</td>' + cells + '</tr>';
+  }).join('');
+}
+
+// ── 11. Quase em Risco ──
+function renderCTDQuaseRisco(viabilidade) {
+  const quase = viabilidade
+    .filter(function(v) { return v.status === 'No Prazo' && v.folga < 30 && v.folga >= 0; })
+    .sort(function(a, b) { return a.folga - b.folga; });
+  const panel = document.getElementById('panel-quase-risco');
+  const body = document.getElementById('t-ctd-quase-body');
+  if (quase.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  body.innerHTML = quase.map(function(v) {
+    return '<tr><td>' + esc(v.entregavel) + '</td>'
+      + '<td class="text-center" style="color:' + ORANGE + ';">' + v.folga + ' dias</td>'
+      + '<td class="text-center">' + v.sla_dias + '</td>'
+      + '<td class="text-center">' + v.pendentes + '</td></tr>';
+  }).join('');
+}
+
+// ── 12. Resumo por Grupo ──
+function renderCTDResumoGrupo(viabilidade) {
+  const grupos = {};
+  viabilidade.forEach(function(v) {
+    if (!grupos[v.grupo]) grupos[v.grupo] = { total: 0, risco: 0, pendentes: 0, folgas: [] };
+    grupos[v.grupo].total++;
+    if (v.status === 'Em Risco') grupos[v.grupo].risco++;
+    grupos[v.grupo].pendentes += v.pendentes;
+    grupos[v.grupo].folgas.push(v.folga);
+  });
+  const body = document.getElementById('t-ctd-resumo-grupo-body');
+  body.innerHTML = Object.entries(grupos).map(function(e) {
+    var nome = e[0], g = e[1];
+    const pctSaudavel = g.total > 0 ? Math.round(100 * (g.total - g.risco) / g.total) : 100;
+    const folgaMedia = g.folgas.length > 0
+      ? Math.round(g.folgas.reduce(function(s, f) { return s + f; }, 0) / g.folgas.length)
+      : 0;
+    const riscoClr = g.risco > 0 ? RED : BRAND_DARK;
+    return '<tr><td>' + esc(nome) + '</td>'
+      + '<td class="text-center">' + g.total + '</td>'
+      + '<td class="text-center fw-bold" style="color:' + riscoClr + ';">' + g.risco + '</td>'
+      + '<td class="text-center">' + pctSaudavel + '%</td>'
+      + '<td class="text-center">' + g.pendentes + '</td>'
+      + '<td class="text-center">' + folgaMedia + ' dias</td></tr>';
+  }).join('');
+}
+
+// ── 13. Comparativo Mes a Mes ──
+function renderCTDComparativo(snaps, viabilidade) {
+  const body = document.getElementById('t-ctd-comparativo-body');
+  if (!snaps || snaps.length < 2) {
+    body.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Dados insuficientes para comparacao.</td></tr>';
+    return;
+  }
+  var meses = snaps.map(function(s) { return s.mes_ano; }).sort();
+  var mesAtual = meses[meses.length - 1];
+  var mesPassado = meses[meses.length - 2];
+
+  var snapAtual = null, snapPassado = null;
+  for (var i = 0; i < snaps.length; i++) {
+    if (snaps[i].mes_ano === mesAtual) snapAtual = snaps[i];
+    if (snaps[i].mes_ano === mesPassado) snapPassado = snaps[i];
+  }
+  if (!snapAtual || !snapPassado) {
+    body.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Sem dados completos.</td></tr>';
+    return;
+  }
+
+  var atuaisRisco = [], passadosRisco = [];
+  try { atuaisRisco = JSON.parse(snapAtual.detalhes_json || '[]'); } catch(e) {}
+  try { passadosRisco = JSON.parse(snapPassado.detalhes_json || '[]'); } catch(e) {}
+
+  var linhas = viabilidade.map(function(v) {
+    var slug = v.slug;
+    var nome = v.entregavel || slug;
+    var estava = passadosRisco.indexOf(slug) >= 0;
+    var esta = atuaisRisco.indexOf(slug) >= 0;
+    var variacao, clr;
+    if (estava && !esta) { variacao = 'Melhorou'; clr = '#198754'; }
+    else if (!estava && esta) { variacao = 'Piorou'; clr = '#DC3545'; }
+    else if (estava && esta) { variacao = 'Ainda em risco'; clr = '#FF9F00'; }
+    else { variacao = 'OK'; clr = '#6C757D'; }
+    return '<tr><td>' + esc(nome) + '</td>'
+      + '<td class="text-center">' + (estava ? 'Risco' : 'OK') + '</td>'
+      + '<td class="text-center">' + (esta ? 'Risco' : 'OK') + '</td>'
+      + '<td class="text-center fw-bold" style="color:' + clr + ';">' + variacao + '</td></tr>';
+  }).join('');
+  body.innerHTML = linhas || '<tr><td colspan="4" class="text-muted text-center">Nenhum item para comparar.</td></tr>';
+}
+
+// ── 14. Toggle Comparativo ──
+function toggleComparativo() {
+  const content = document.getElementById('ctd-comparativo-content');
+  const toggle = document.getElementById('ctd-comp-toggle');
+  const isOpen = content.style.display !== 'none';
+  content.style.display = isOpen ? 'none' : '';
+  toggle.textContent = isOpen ? '▶' : '▼';
+}
+
+// ─── startup ──────────────────────────────────────────────────────────────
+init();
+checkDebugMode();
+</script>
+</body>
+</html>

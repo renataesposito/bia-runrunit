@@ -173,6 +173,10 @@ def requires_auth(f):
 def index():
     return render_template("index.html")
 
+@app.route("/ctd")
+def ctd_page():
+    return render_template("ctd.html")
+
 @app.route("/api/queue/status")
 def api_queue_status():
     """Retorna o status da fila de processamento."""
