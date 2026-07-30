@@ -111,7 +111,7 @@ def load_escopo() -> pd.DataFrame:
     df = df.dropna(subset=["entregavel"]).copy()
     df["qtd_mes"] = pd.to_numeric(df["qtd_mes"], errors="coerce").fillna(0)
     df["qtd_ano"] = pd.to_numeric(df["qtd_ano"], errors="coerce").fillna(0)
-    df["sla_dias"] = pd.to_numeric(df["sla_dias"], errors="coerce").fillna(0).astype(int)
+    df["sla_dias"] = pd.to_numeric(df["sla_dias"], errors="coerce").fillna(0).astype(float)
     df = df[(df["qtd_mes"] > 0) | (df["qtd_ano"] > 0)]  # remove linhas de cabeçalho ou vazias
 
     meses = _meses_decorridos()
@@ -482,7 +482,7 @@ def compute_ctd_viability(escopo_real: pd.DataFrame) -> dict:
     for _, item in escopo_real.iterrows():
         # Usa qtd_ano como total do contrato (visão anual base)
         pendentes = max(0, round(item.get("qtd_ano", 0)) - round(item.get("realizado", 0)))
-        sla_dias_val = int(item.get("sla_dias", 0))
+        sla_dias_val = float(item.get("sla_dias", 0))
 
         if sla_dias_val > 0:
             dias_minimos = pendentes * sla_dias_val
@@ -559,7 +559,7 @@ def generate_historical_snapshots(escopo: pd.DataFrame, entregas: pd.DataFrame):
         em_risco_slugs = []
         for _, item in esc_real.iterrows():
             pendentes = max(0, round(item.get("qtd_ano", 0)) - round(item.get("realizado", 0)))
-            sla_dias_val = int(item.get("sla_dias", 0))
+            sla_dias_val = float(item.get("sla_dias", 0))
             if sla_dias_val > 0:
                 dias_minimos = pendentes * sla_dias_val
                 if dias_minimos > dias_restantes and pendentes > 0:
