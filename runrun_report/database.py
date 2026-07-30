@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 import pandas as pd
 from dotenv import load_dotenv
@@ -9,6 +9,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DB_PATH = os.getenv("SQLITE_DB_PATH", "data/nuclea.db")
+
+# GMT-3 (Brasília)
+TZ_BRASIL = timezone(timedelta(hours=-3))
+
+def _now_brasilia() -> str:
+    """Retorna timestamp ISO em GMT-3."""
+    return datetime.now(TZ_BRASIL).isoformat()
 
 
 def get_connection() -> sqlite3.Connection:
@@ -384,7 +391,7 @@ def log_sync_start(sync_type: str) -> int:
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO sync_log (sync_type, started_at, status) VALUES (?, ?, 'running')",
-        (sync_type, datetime.now().isoformat())
+        (sync_type, _now_brasilia())
     )
     conn.commit()
     sync_id = cursor.lastrowid
@@ -400,7 +407,7 @@ def log_sync_complete(sync_id: int, records_fetched: int, status: str = "success
         """UPDATE sync_log 
            SET completed_at = ?, records_fetched = ?, status = ?, error_message = ?
            WHERE id = ?""",
-        (datetime.now().isoformat(), records_fetched, status, error_message, sync_id)
+        (_now_brasilia(), records_fetched, status, error_message, sync_id)
     )
     conn.commit()
     conn.close()

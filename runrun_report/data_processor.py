@@ -22,6 +22,10 @@ DEBUG_MODE = True
 # Timezone GMT-3 (Brasília)
 TZ_BRASIL = timezone(timedelta(hours=-3))
 
+def now_brasilia() -> datetime:
+    """Retorna datetime atual em GMT-3 (Brasília)."""
+    return datetime.now(TZ_BRASIL)
+
 def to_brasilia_time(utc_str: str) -> str:
     """Converte string ISO UTC para data string em GMT-3 (Brasília)."""
     if not utc_str:
@@ -477,7 +481,7 @@ def compute_ctd_viability(escopo_real: pd.DataFrame) -> dict:
     
     for _, item in escopo_real.iterrows():
         # Usa qtd_ano como total do contrato (visão anual base)
-        pendentes = max(0, int(item.get("qtd_ano", 0)) - int(item.get("realizado", 0)))
+        pendentes = max(0, round(item.get("qtd_ano", 0)) - round(item.get("realizado", 0)))
         sla_dias_val = int(item.get("sla_dias", 0))
 
         if sla_dias_val > 0:
@@ -554,7 +558,7 @@ def generate_historical_snapshots(escopo: pd.DataFrame, entregas: pd.DataFrame):
         qtd_em_risco = 0
         em_risco_slugs = []
         for _, item in esc_real.iterrows():
-            pendentes = max(0, int(item.get("qtd_ano", 0)) - int(item.get("realizado", 0)))
+            pendentes = max(0, round(item.get("qtd_ano", 0)) - round(item.get("realizado", 0)))
             sla_dias_val = int(item.get("sla_dias", 0))
             if sla_dias_val > 0:
                 dias_minimos = pendentes * sla_dias_val

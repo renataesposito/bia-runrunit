@@ -1686,14 +1686,44 @@ function renderCTDMatrizRisco(viabilidade) {
     }
   });
 
-  // Headers: uma coluna por entregavel unico
+  // Headers: uma coluna por entregavel unico (com quebra de linha)
   headerEl.innerHTML = slugsUnicos.map(function(slug) {
-    return '<th class="text-center" style="min-width:80px;max-width:120px;font-size:11px;">' + esc(slugToNome[slug]) + '</th>';
+    var nome = esc(slugToNome[slug]);
+    // Abrevia nomes longos com <br> para quebrar linha
+    if (nome.length > 15) {
+      var partes = nome.split(' ');
+      var linha1 = '', linha2 = '';
+      for (var p = 0; p < partes.length; p++) {
+        if ((linha1 + ' ' + partes[p]).length < 14) {
+          linha1 += (linha1 ? ' ' : '') + partes[p];
+        } else {
+          linha2 += (linha2 ? ' ' : '') + partes[p];
+        }
+      }
+      nome = linha1 + '<br>' + linha2;
+    }
+    return '<th class="text-center align-middle" style="min-width:70px;font-size:10px;line-height:1.2;white-space:normal;word-wrap:break-word;">' + nome + '</th>';
   }).join('');
+
+  // Linha extra de legenda (Concluido / Em Risco / No Prazo)
+  var legendaHtml = '<tr><td class="fw-bold" style="font-size:10px;color:#6C757D;">Status</td>';
+  legendaHtml += slugsUnicos.map(function(slug) {
+    var item = null;
+    for (var g in grupos) {
+      for (var j = 0; j < grupos[g].length; j++) {
+        if (grupos[g][j].slug === slug) { item = grupos[g][j]; break; }
+      }
+      if (item) break;
+    }
+    if (!item) return '<td class="text-center" style="font-size:10px;color:#6C757D;">N/A</td>';
+    var lbl = item.status;
+    return '<td class="text-center" style="font-size:10px;color:#6C757D;">' + lbl + '</td>';
+  }).join('');
+  legendaHtml += '</tr>';
 
   // Body: uma linha por grupo
   var gruposOrdenados = Object.keys(grupos).sort();
-  bodyEl.innerHTML = gruposOrdenados.map(function(g) {
+  bodyEl.innerHTML = legendaHtml + gruposOrdenados.map(function(g) {
     var cells = slugsUnicos.map(function(slug) {
       var item = null;
       for (var j = 0; j < grupos[g].length; j++) {
@@ -1706,7 +1736,7 @@ function renderCTDMatrizRisco(viabilidade) {
       else if (item.status === 'Em Risco') { bg = '#f8d7da'; fg = '#58151c'; }
       else { bg = '#e2e3e5'; fg = '#41464b'; }
       var label = item.status === 'Concluido' ? 'OK' : (item.status === 'Em Risco' ? '!' : '-');
-      return '<td class="text-center fw-bold" style="background:' + bg + ';color:' + fg + ';font-size:13px;padding:5px 4px;">' + label + '</td>';
+      return '<td class="text-center fw-bold" style="background:' + bg + ';color:' + fg + ';font-size:12px;padding:4px 2px;border:1px solid #dee2e6;">' + label + '</td>';
     }).join('');
     return '<tr><td class="fw-bold" style="font-size:12px;">' + esc(g) + '</td>' + cells + '</tr>';
   }).join('');
@@ -1766,52 +1796,44 @@ function renderCTDResumoGrupo(viabilidade) {
 function renderCTDComparativo(snaps, viabilidade) {
   const body = document.getElementById('t-ctd-comparativo-body');
   if (!snaps || snaps.length < 2) {
-    body.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Dados insuficientes para comparação.</td></tr>';
+    body.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Dados insuficientes para comparacao.</td></tr>';
     return;
   }
-  const meses = snaps.map(s => s.mes_ano).sort();
-  const mesAtual = meses[meses.length - 1];
-  const mesPassado = meses[meses.length - 2];
+  var meses = snaps.map(function(s) { return s.mes_ano; }).sort();
+  var mesAtual = meses[meses.length - 1];
+  var mesPassado = meses[meses.length - 2];
 
-  // Busca detalhes dos snapshots para comparar
-  const snapAtual = snaps.find(s => s.mes_ano === mesAtual);
-  const snapPassado = snaps.find(s => s.mes_ano === mesPassado);
+  var snapAtual = null, snapPassado = null;
+  for (var i = 0; i < snaps.length; i++) {
+    if (snaps[i].mes_ano === mesAtual) snapAtual = snaps[i];
+    if (snaps[i].mes_ano === mesPassado) snapPassado = snaps[i];
+  }
   if (!snapAtual || !snapPassado) {
     body.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Sem dados completos.</td></tr>';
     return;
   }
 
-  // Usa os slugs em risco de cada mês (detalhes_json)
-  let atuaisRisco = [], passadosRisco = [];
+  var atuaisRisco = [], passadosRisco = [];
   try { atuaisRisco = JSON.parse(snapAtual.detalhes_json || '[]'); } catch(e) {}
   try { passadosRisco = JSON.parse(snapPassado.detalhes_json || '[]'); } catch(e) {}
 
-  const slugToName = {};
-  viabilidade.forEach(v => { slugToName[v.slug] = v.entregavel; });
-
-  var slugsUnicos = [];
-  atuaisRisco.forEach(function(s) { if (slugsUnicos.indexOf(s) < 0) slugsUnicos.push(s); });
-  passadosRisco.forEach(function(s) { if (slugsUnicos.indexOf(s) < 0) slugsUnicos.push(s); });
-
-  if (slugsUnicos.length === 0) {
-    body.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Nenhum item em risco nos periodos comparados.</td></tr>';
-    return;
-  }
-
-  body.innerHTML = slugsUnicos.map(function(slug) {
-    var nome = slugToName[slug] || slug;
+  // Usa TODOS os itens da viabilidade atual, comparando com o mes passado
+  var linhas = viabilidade.map(function(v) {
+    var slug = v.slug;
+    var nome = v.entregavel || slug;
     var estava = passadosRisco.indexOf(slug) >= 0;
     var esta = atuaisRisco.indexOf(slug) >= 0;
     var variacao, clr;
     if (estava && !esta) { variacao = 'Melhorou'; clr = '#198754'; }
     else if (!estava && esta) { variacao = 'Piorou'; clr = '#DC3545'; }
     else if (estava && esta) { variacao = 'Ainda em risco'; clr = '#FF9F00'; }
-    else { variacao = 'Estavel'; clr = '#6C757D'; }
+    else { variacao = 'OK'; clr = '#6C757D'; }
     return '<tr><td>' + esc(nome) + '</td>'
-      + '<td class="text-center">' + (estava ? 'Em Risco' : 'OK') + '</td>'
-      + '<td class="text-center">' + (esta ? 'Em Risco' : 'OK') + '</td>'
+      + '<td class="text-center">' + (estava ? 'Risco' : 'OK') + '</td>'
+      + '<td class="text-center">' + (esta ? 'Risco' : 'OK') + '</td>'
       + '<td class="text-center fw-bold" style="color:' + clr + ';">' + variacao + '</td></tr>';
   }).join('');
+  body.innerHTML = linhas || '<tr><td colspan="4" class="text-muted text-center">Nenhum item para comparar.</td></tr>';
 }
 
 // ── 14. Toggle Comparativo ──
