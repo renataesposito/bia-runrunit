@@ -1512,15 +1512,26 @@ function renderCTDVolumeAlvo(monthlyVelocity, totalContrato) {
   }
   var x = vel.map(function(v) { return v.mes_ano; });
   var y = vel.map(function(v) { return v.total; });
-  var n = vel.length;
-  var baseMes = totalContrato > 0 ? totalContrato / 12 : 0;
-  var alvos = [], acumFaltou = 0;
-  for (var i = 0; i < n; i++) {
-    var alvoEsteMes = baseMes + acumFaltou / Math.max(1, n - i);
-    alvos.push(alvoEsteMes);
-    var entregue = vel[i].total;
-    var faltou = Math.max(0, alvoEsteMes - entregue);
-    acumFaltou += faltou;
+  // Calcula o alvo dinamico a cada mes.
+  // Usa o offset real do mes no contrato (mesIndex) para calcular corretamente
+  // quantos meses restavam na epoca, mesmo que o mes tenha tido 0 entregas
+  // e nao apareca no array.
+  // Formula: alvo = restanteNaEpoca / (TOTAL_MESES - mesIndex)
+  // onde mesIndex = quantos meses desde o inicio do contrato (0 = Marco/2026).
+  var MES_INICIO = 3; // marco
+  var ANO_INICIO = 2026;
+  var TOTAL_MESES = 12;
+  var alvos = [], cumReal = 0;
+  for (var i = 0; i < vel.length; i++) {
+    var mesAno = vel[i].mes_ano;
+    var ano = parseInt(mesAno.slice(0, 4), 10);
+    var mes = parseInt(mesAno.slice(5, 7), 10);
+    var mesIndex = (ano - ANO_INICIO) * 12 + (mes - MES_INICIO);
+    var restante = totalContrato - cumReal;
+    var mesesRestam = TOTAL_MESES - mesIndex;
+    var alvo = mesesRestam > 0 ? restante / mesesRestam : 0;
+    alvos.push(Math.round(alvo * 10) / 10);
+    cumReal += vel[i].total;
   }
 
   Plotly.react('g-ctd-volume-alvo', [
