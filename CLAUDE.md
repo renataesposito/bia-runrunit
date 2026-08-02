@@ -53,15 +53,15 @@ docker compose restart app
 ```
                             ┌──────────────────────────────────────────┐
                             │  templates/index.html  (SPA, Plotly)    │
+                            │  templates/ctd.html   (CTD dedicado)    │
                             │  templates/debug.html  (modo debug)     │
                             └──────────────────┬───────────────────────┘
                                                │ fetch (GET)
                             ┌──────────────────▼───────────────────────┐
                             │  app.py  (Flask, porta 8050)             │
-                            │  - /api/data  /api/export  /api/pdf-report│
-                            │  - /api/sync  /api/debug/*  /api/queue/* │
-                            │  - /debug (autenticação básica HTTP)     │
-                            └──┬─────────────────────────────┬────────┘
+                            │  /  /ctd  /api/data  /api/export        │
+                            │  /api/pdf-report  /api/sync  /api/queue/*│
+                            │  /api/debug/*  /debug                   │
                                │                             │
                 ┌──────────────▼─────────────┐   ┌───────────▼──────────────┐
                 │  data_processor.py         │   │  export.py / pdf_generator│
@@ -223,16 +223,17 @@ Arquivo: `runrun_report/Escopo Nuclea.xlsx`, aba **`PROD`**. A primeira coluna �
 
 ## Frontend
 
-SPA servida pelo Flask. **Duas páginas**:
+Páginas servidas pelo Flask:
 
-- `templates/index.html` — dashboard principal
-- `templates/debug.html` — ferramentas de diagnóstico (autenticado, ver abaixo)
+- `templates/index.html` — dashboard principal (visões Anual e Mensal) em `/`
+- `templates/ctd.html` — dashboard CTD dedicado em `/ctd` (página autônoma extraída do index.html)
+- `templates/debug.html` — ferramentas de diagnóstico em `/debug` (autenticado)
 
-O dashboard faz uma única chamada `GET /api/data` na inicialização; tudo o mais é recalculado client-side. Bibliotecas via CDN: Bootstrap 5, Plotly.js, Inter font.
+Todas as páginas consomem `GET /api/data` na inicialização. Bibliotecas via CDN: Bootstrap 5, Plotly.js, Inter font.
 
-### Dashboard — componentes
+### Dashboard — componentes (`index.html`)
 
-**Header**: logo Núclea, toggle **Anual/Mensal** (no header), badge de status de sincronização, badge da fila (`Fila: N itens`), última atualização.
+**Header**: logo Núclea, toggle **Anual/Mensal** (com link para `/ctd`), badge de status de sincronização, badge da fila (`Fila: N itens`), última atualização.
 
 **Toggle Anual/Mensal**:
 - **Anual** — filtros: `De` (data), `Até` (data), `Grupo`; exporta Excel com o range aplicado
@@ -297,6 +298,41 @@ Banner amarelo automático quando há comentários cujo hashtag não foi vincula
 
 - `GET /api/queue/status` a cada 5s para atualizar badge da fila
 - `GET /api/debug/status` quando a fila esvazia, para atualizar "Última atualização"
+
+### Página CTD (`/ctd`, `templates/ctd.html`)
+
+Página autônoma extraída do index.html. Mesmo endpoint `/api/data`, sem polling de fila.
+
+**Header**: logo, botões "Anual/Mensal" (link para `/`) e "CTD" (active), última atualização.
+
+**5 KPI cards**:
+| KPI | Cálculo |
+|-----|---------|
+| **Saúde do Contrato** | Verde (0 risco), Amarelo (1-2), Vermelho (3+) |
+| **Tipos em Risco** | Contagem de entregáveis com `status = "Em Risco"` |
+| **Dias Restantes** | `FIM_CONTRATO - ref_date` |
+| **Progresso CTD** | `total_realizado / total_contrato × 100` |
+| **Meta de Entrega** | `pendentes / dias_restantes` (unidades/dia) + `pendentes / (dias_restantes/30)` (unidades/mês) |
+
+**Cards auxiliares**: "Top 3 Urgências" (3 itens com pior folga) e "Concluídos do Mês" (status = "Concluído").
+
+**Gráficos**:
+- **Burndown**: linha ideal (reta de total_contrato até 0) vs linha real (acumulado de `monthly_velocity`). Eixo X = meses desde DATA_INICIO.
+- **Folga por Entregável**: barras horizontais de `folga = dias_restantes - dias_minimos`. Verde se >= 0, vermelho se < 0. Apenas itens com SLA > 0 e não concluídos.
+- **Velocidade Mensal**: barras de entregas por mês + linha de meta fixa (`pendentes / (dias_restantes / 30)`).
+- **Volume Mensal com Alvo Dinâmico**: barras iguais à velocidade, mas alvo recalcula a cada mês: `alvo = (totalContrato - cumReal) / (12 - mesIndex)`. Déficits são redistribuídos.
+- **Evolução da Saúde**: barras coloridas por mês a partir de `ctd_snapshots`. Altura proporcional a `qtd_em_risco`, cor conforme `status_geral`.
+- **Treemap**: hierarquia grupo → entregável. Tamanho = peso no contrato (pendentes + sla). Cor = status. Grupos como nós raiz.
+
+**Tabelas**:
+- **Matriz de Risco**: colunas = entregáveis únicos (slug), linhas = grupos. Células OK/!/- coloridas por status. Linha de legenda textual.
+- **Ações Recomendadas**: itens "Em Risco" com pendentes, SLA, dias mínimos, déficit.
+- **Quase em Risco**: itens "No Prazo" com folga >= 0 e < 30 dias.
+- **Resumo por Grupo**: agregação (itens, em risco, % saudável, pendentes, folga média).
+- **Comparativo Mês a Mês**: todos os itens comparando mês atual vs anterior (Melhorou/Piorou/OK). Colapsável.
+- **Viabilidade CTD**: completa com grupo, entregável, pendentes, SLA, dias mínimos, restantes, folga, status.
+
+**Dados**: `sla_dias` aceita float (lido do Excel com vírgula pt-BR, ex: 0,5).
 
 ## Modo Debug (`/debug`)
 

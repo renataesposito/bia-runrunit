@@ -58,19 +58,21 @@ Os títulos e legendas dos 4 cards de KPI são **dinâmicos** via `setKpiLabels(
 - **Cores dos KPIs:** `kpi-saldo`: BRAND_DARK (≥0) ou RED (<0). `kpi-realizado`: BRAND_LIME (>0) ou BRAND_DARK. `kpi-pct`: GREEN (≥80%), ORANGE (≥50%), RED (<50%).
 
 ### Dashboard — CTD (SLA-to-Delivery)
-- **Visão ativada** pelo botão "CTD" no header da página inicial.
+- **Página própria:** A visão CTD foi extraída para `templates/ctd.html`, servida em `/ctd`. Não faz mais parte do `index.html`. Header com botões "Anual / Mensal" linkando para `/` e "CTD" linkando para `/ctd`.
 - **KPIs:** 5 cards — Saúde do Contrato, Tipos em Risco, Dias Restantes, Progresso CTD, **Meta de Entrega** (unidades/dia necessárias para cumprir o contrato).
 - **Cards auxiliares:** "Top 3 Urgências" (itens mais críticos) e "Concluídos do Mês" (entregáveis finalizados).
 - **Gráficos:**
-  - **Burndown** — curva ideal vs real de saldo restante ao longo dos meses.
-  - **Folga por Entregável** — barras horizontais verdes/vermelhas mostrando a folga em dias de cada item com SLA.
-  - **Velocidade Mensal** — barras de entregas por mês com linha da meta necessária.
-  - **Evolução da Saúde** — barras coloridas por mês mostrando a quantidade de itens em risco.
-  - **Treemap** — distribuição hierárquica do contrato por grupo/entregável, colorido por status.
-- **Matriz de Risco por Grupo** — tabela heatmap com status por entregável.
-- **Tabelas:** "Ações Recomendadas" (itens em risco com SLA), "Quase em Risco" (folga < 30 dias), "Resumo por Grupo" (agregação), "Comparativo Mês a Mês" (variação de risco), e "Viabilidade CTD por Entregável" (completa).
-- **Alertas:** 🚨 SLA desrespeitado quando duas entregas do mesmo item ocorrem em intervalo menor que o SLA configurado. Dados servidos via `ctd_aux.sla_violations` no payload `/api/data`.
-- **Snapshots históricos** gerados retroativamente por `generate_historical_snapshots()` e servidos via `ctd_snapshots` no payload `/api/data`.
+  - **Burndown** — curva ideal vs real de saldo restante ao longo dos meses. Ideal é reta decrescente (total ate 0). Real usa `monthly_velocity` com acumulo progressivo.
+  - **Folga por Entregavel** — barras horizontais verdes/vermelhas mostrando a folga em dias de cada item com SLA (folga = dias_restantes - dias_minimos).
+  - **Velocidade Mensal** — barras de entregas por mes com linha da meta necessaria (`pendentes / (dias_restantes / 30)`).
+  - **Volume Mensal com Alvo Dinamico** — barras iguais a velocidade, mas com linha de alvo que se recalcula a cada mes: `alvo = (totalContrato - acumulado) / (12 - mesIndex)`. Deficit de meses anteriores redistribuido.
+  - **Evolucao da Saude** — barras coloridas por mes (verde/amarelo/vermelho) mostrando a quantidade de itens em risco.
+  - **Treemap** — distribuicao hierarquica do contrato por grupo → entregavel (grupos como nos raiz), tamanho por peso no contrato, cor por status.
+- **Matriz de Risco por Grupo** — tabela heatmap: uma coluna por entregavel unico, uma linha por grupo. Celulas coloridas com legenda textual.
+- **Tabelas:** "Acoes Recomendadas" (itens em risco), "Quase em Risco" (folga < 30 dias), "Resumo por Grupo" (itens/risco/%/pendentes/folga media), "Comparativo Mes a Mes" (todos os itens vs mes anterior), e "Viabilidade CTD por Entregavel" (completa).
+- **Dados:** Servidos via `/api/data` — `ctd` (viabilidade + saude), `ctd_snapshots` (historico mensal), `ctd_aux` (sla_violations, monthly_velocity, delivery_meta).
+- **sla_dias aceita float:** lido do Excel com virgula (pt-BR) como `0,5`. Não converte mais para inteiro.
+- **Snapshots historicos:** gerados retroativamente por `generate_historical_snapshots()`.
 
 ### Dashboard — Filtros
 - A visão **Anual** **não tem mais filtros locais** (De/Até/Grupo/Exportar foram movidos para `/debug`).
@@ -106,6 +108,7 @@ Os títulos e legendas dos 4 cards de KPI são **dinâmicos** via `setKpiLabels(
 | Método | Rota | Auth | Descrição |
 |--------|------|------|-----------|
 | GET | `/` | Não | Dashboard principal (`index.html`) |
+| GET | `/ctd` | Não | Dashboard CTD dedicado (`ctd.html`) |
 | GET | `/debug` | **Sim** | Tela de debug (`debug.html`) |
 | GET | `/api/data` | Não | KPIs, escopo, entregas, grupos, meses/anos, CTD & snapshots |
 | GET | `/api/export` | Não | Exporta Excel filtrado |
@@ -128,5 +131,6 @@ Os títulos e legendas dos 4 cards de KPI são **dinâmicos** via `setKpiLabels(
 - `runrun_report/export.py`: Exportação Excel com template.
 - `runrun_report/config.py`: Constantes de negócio (datas, cliente, API base URL).
 - `runrun_report/queue_manager.py`: Configurações de rate limit e fila.
-- `runrun_report/templates/index.html`: Dashboard principal (visão Anual/Mensal/CTD).
+- `runrun_report/templates/index.html`: Dashboard principal (visões Anual e Mensal).
+- `runrun_report/templates/ctd.html`: Dashboard CTD dedicado (página separada, servida em `/ctd`).
 - `runrun_report/templates/debug.html`: Tela de diagnóstico, filtros e exportação.
