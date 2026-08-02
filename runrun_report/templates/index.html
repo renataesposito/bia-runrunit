@@ -1088,8 +1088,8 @@ function setView(view) {
   _currentView = view;
   document.getElementById('btn-view-anual').classList.toggle('active', view === 'anual');
   document.getElementById('btn-view-mensal').classList.toggle('active', view === 'mensal');
-  document.getElementById('btn-view-ctd').classList.toggle('active', view === 'ctd');
-  
+  // btn-view-ctd não existe mais: a página CTD virou rota exclusiva (/ctd)
+
   document.getElementById('anual-mensal-view').style.display = (view === 'anual' || view === 'mensal') ? '' : 'none';
   document.getElementById('ctd-view').style.display = view === 'ctd' ? '' : 'none';
   
