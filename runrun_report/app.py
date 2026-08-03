@@ -365,6 +365,77 @@ def api_debug_orphan_tasks():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
+@app.route("/api/debug/orphan-tag-tasks")
+@requires_auth
+def api_debug_orphan_tag_tasks():
+    """
+    Retorna tasks que têm tag(s) mas nenhum comentário registrou quantidade (#slugN).
+    Para cada task, inclui todos os comentários e o status de cada tag
+    (preenchida = aparece em algum comentário como hashtag).
+    """
+    try:
+        import re as _re
+        tasks = database.load_tasks()
+        comments_by_task = database.load_comments_by_task()
+        result = []
+
+        for t in tasks:
+            tags = [str(x).strip() for x in t.get("tags", []) if str(x).strip()]
+            if not tags:
+                continue
+            task_id = t["task_id"]
+            comments = comments_by_task.get(task_id, [])
+
+            comment_infos = []
+            for c in comments:
+                text = c.get("text") or ""
+                qty_hashtags = data_processor._parse_hashtags(text)
+                plain_hashtags = _re.findall(r"#([^\s#]+)", text.replace("&nbsp;", " "))
+                comment_infos.append({
+                    "id": c.get("id"),
+                    "data": data_processor.to_brasilia_time(c.get("created_at") or ""),
+                    "texto": text,
+                    "user_email": c.get("user_email") or "",
+                    "has_quantidade": bool(qty_hashtags),
+                    "hashtags": [h for h in plain_hashtags],
+                })
+
+            # Órfã de quantidade: tem tag mas nenhum comentário traz hashtag com número
+            if any(ci["has_quantidade"] for ci in comment_infos):
+                continue
+
+            # Marca cada tag: preenchida se aparece como hashtag em algum comentário
+            tags_status = []
+            for tg in tags:
+                tslug = data_processor._slug(tg)
+                preenchida = False
+                for ci in comment_infos:
+                    for h in ci["hashtags"]:
+                        hs = data_processor._slug(h)
+                        if hs and (hs == tslug or (tslug and hs.startswith(tslug) and hs[len(tslug):].isdigit())):
+                            preenchida = True
+                            break
+                    if preenchida:
+                        break
+                tags_status.append({"tag": tg, "preenchida": preenchida})
+
+            result.append({
+                "task_id": task_id,
+                "title": t.get("title") or "",
+                "projeto": t.get("project_name") or "",
+                "grupo": t.get("project_group_name") or "",
+                "tags": tags_status,
+                "comments": comment_infos,
+            })
+
+        result.sort(key=lambda x: (x["grupo"] or "", x["title"] or ""))
+        return jsonify({"count": len(result), "tasks": result})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 @app.route("/api/debug/logs")
 @requires_auth
 def api_debug_logs():

@@ -209,10 +209,16 @@
       <div class="col-12">
         <div class="card panel"><div class="card-body">
           <p class="ctd-section-title">🔴 Matriz de Risco por Grupo</p>
+          <div class="text-muted small mb-2">
+            <span class="badge bg-success me-1">OK</span> Concluído
+            <span class="badge bg-danger me-1 ms-2">!</span> Em Risco
+            <span class="badge bg-info text-dark me-1 ms-2">−</span> No Prazo
+            <span class="badge bg-secondary me-1 ms-2">−</span> Sem SLA
+          </div>
           <div class="table-responsive" style="overflow-x:auto;max-height:420px;overflow-y:auto">
             <table class="table table-sm table-bordered mb-0" style="font-size:11px;">
               <thead style="position:sticky;top:0;z-index:1">
-                <tr><th>Grupo</th><th id="t-matriz-headers"></th></tr>
+                <tr id="t-matriz-header-row"><th>Grupo</th></tr>
               </thead>
               <tbody id="t-ctd-matriz-body"></tbody>
             </table>
@@ -733,7 +739,7 @@ function renderCTDConcluidos(viabilidade) {
 
 // ── 10. Matriz de Risco por Grupo ──
 function renderCTDMatrizRisco(viabilidade) {
-  var headerEl = document.getElementById('t-matriz-headers');
+  var headerRowEl = document.getElementById('t-matriz-header-row');
   var bodyEl = document.getElementById('t-ctd-matriz-body');
 
   var grupos = {};
@@ -751,7 +757,8 @@ function renderCTDMatrizRisco(viabilidade) {
     }
   });
 
-  headerEl.innerHTML = slugsUnicos.map(function(slug) {
+  // Cada título de entregável em sua própria coluna (um <th> por task)
+  headerRowEl.innerHTML = '<th>Grupo</th>' + slugsUnicos.map(function(slug) {
     var nome = esc(slugToNome[slug]);
     if (nome.length > 15) {
       var partes = nome.split(' ');

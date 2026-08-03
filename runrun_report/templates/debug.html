@@ -276,6 +276,29 @@
     </div>
   </div>
 
+  <!-- Tabela de Tasks com Tag sem Entrega Registrada (Órfãs de Quantidade) -->
+  <div class="card panel mb-3">
+    <div class="card-body">
+      <p class="sec-title mb-2 text-danger">⚠ Tasks com Tag sem Entrega Registrada (Órfãs de Quantidade)</p>
+      <p class="text-muted small mb-2" id="orphan-tags-summary">Carregando...</p>
+      <div class="table-responsive" style="max-height:400px;overflow-y:auto">
+        <table class="table table-sm table-bordered mb-0">
+          <thead style="position:sticky;top:0;z-index:1">
+            <tr>
+              <th>Task ID</th>
+              <th>Título da Task</th>
+              <th>Grupo</th>
+              <th>Tags da Task</th>
+              <th>Data Comentário</th>
+              <th>Comentário</th>
+            </tr>
+          </thead>
+          <tbody id="t-orphan-tag-tasks-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- Link para voltar -->
   <div class="text-center mb-4">
     <a href="/" class="btn btn-outline-secondary">← Voltar ao Dashboard</a>
@@ -288,11 +311,19 @@
 let _logs = [];
 let _ignored = [];
 
+function esc(v) {
+  if (v == null) return '';
+  return String(v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 async function init() {
   await loadStatus();
   await loadLogs();
   await loadIgnored();
   await loadOrphanTasks();
+  await loadOrphanTagTasks();
   await loadQueueData();
   await loadSyncProgress();
   await loadMesesPdf();
@@ -341,6 +372,56 @@ async function loadOrphanTasks() {
     `).join('');
   } catch (err) {
     console.error('Erro ao carregar tasks órfãs:', err);
+  }
+}
+
+async function loadOrphanTagTasks() {
+  try {
+    const res = await fetch('/api/debug/orphan-tag-tasks');
+    const data = await res.json();
+    const summary = document.getElementById('orphan-tags-summary');
+    const tbody = document.getElementById('t-orphan-tag-tasks-body');
+
+    if (data.status === 'error') throw new Error(data.error);
+
+    const tasks = data.tasks || [];
+    if (!tasks.length) {
+      summary.textContent = 'Nenhuma task com tag sem entrega registrada. Execute "Sincronizar Agora" para atualizar os dados.';
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">Nenhuma task órfã de quantidade</td></tr>';
+      return;
+    }
+
+    summary.textContent = tasks.length + ' task(s) com tag(s) e nenhum comentário com quantidade (#slugN). '
+      + '✓ tag preenchida no comentário · ✗ tag sem menção.';
+
+    tbody.innerHTML = tasks.map(t => {
+      const tagsHtml = t.tags.map(tg =>
+        tg.preenchida
+          ? '<span class="badge bg-success me-1">✓ ' + esc(tg.tag) + '</span>'
+          : '<span class="badge bg-secondary me-1">✗ ' + esc(tg.tag) + '</span>'
+      ).join('');
+
+      const headerRow = '<tr class="table-dark">'
+        + '<td><a href="https://runrun.it/tasks/' + t.task_id + '" target="_blank">' + t.task_id + '</a></td>'
+        + '<td><small>' + esc(t.title) + '</small></td>'
+        + '<td>' + esc(t.grupo) + '</td>'
+        + '<td>' + tagsHtml + '</td>'
+        + '<td colspan="2"><small class="text-muted">' + t.comments.length + ' comentário(s)</small></td>'
+        + '</tr>';
+
+      const commentRows = t.comments.map(c =>
+        '<tr>'
+        + '<td></td><td></td><td></td><td></td>'
+        + '<td>' + esc(c.data) + '</td>'
+        + '<td><small>' + esc(c.texto) + '</small></td>'
+        + '</tr>'
+      ).join('') || '<tr><td colspan="6" class="text-muted text-center">Sem comentários</td></tr>';
+
+      return headerRow + commentRows;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar tasks órfãs de quantidade:', err);
+    document.getElementById('orphan-tags-summary').textContent = 'Erro ao carregar: ' + err.message;
   }
 }
 
@@ -599,6 +680,7 @@ async function syncNow() {
     await loadStatus();
     await loadLogs();
     await loadIgnored();
+    await loadOrphanTagTasks();
   } catch (err) {
     // Silencia erros durante o sincronismo
     console.error('Sync falhou silenciosamente:', err);

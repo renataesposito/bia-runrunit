@@ -156,12 +156,36 @@ def init_database():
         )
     """)
 
+    # Tabela de tasks (com tags) — diagnóstico no Debug
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            task_id INTEGER PRIMARY KEY,
+            title TEXT,
+            project_name TEXT,
+            project_group_name TEXT,
+            tags_json TEXT,
+            synced_at TEXT
+        )
+    """)
+
+    # Tabela de comentários — diagnóstico no Debug
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY,
+            task_id INTEGER,
+            created_at TEXT,
+            text TEXT,
+            user_email TEXT
+        )
+    """)
+
     # Criar indexes para otimização
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entregas_data ON entregas(data)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entregas_mes_ano ON entregas(mes_ano)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entregas_grupo ON entregas(grupo)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entregas_scope_slug ON entregas(scope_slug)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entregas_task_id ON entregas(task_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_comments_task_id ON comments(task_id)")
 
     # Migrações
     try:
@@ -307,6 +331,82 @@ def load_all_anexos() -> list:
         except (TypeError, ValueError):
             pass
     return anexos
+
+# ==================== Operações de Tasks e Comentários (Debug) ====================
+
+def save_tasks(tasks_list: list):
+    """Salva as tasks (com suas tags) no banco de dados (substituição total)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM tasks")
+    for t in tasks_list:
+        tags = t.get("task_tags") or []
+        if isinstance(tags, str):
+            tags = [tags] if tags else []
+        cursor.execute(
+            """INSERT OR REPLACE INTO tasks (task_id, title, project_name, project_group_name, tags_json, synced_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (t.get("id"), t.get("title"), t.get("project_name"), t.get("project_group_name"),
+             json.dumps(tags, ensure_ascii=False), _now_brasilia())
+        )
+    conn.commit()
+    conn.close()
+    print(f"Tasks salvas no banco: {len(tasks_list)} registros")
+
+
+def save_comments(all_comments: dict):
+    """Salva os comentários de todas as tasks (substituição total)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM comments")
+    count = 0
+    for task_id, comments in all_comments.items():
+        for c in comments:
+            if c.get("is_system_message"):
+                continue
+            user_data = c.get("user") or {}
+            email = (c.get("user_email") or user_data.get("email") or "").strip().lower()
+            cursor.execute(
+                """INSERT OR REPLACE INTO comments (id, task_id, created_at, text, user_email)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (c.get("id"), task_id, c.get("created_at"), c.get("text") or "", email)
+            )
+            count += 1
+    conn.commit()
+    conn.close()
+    print(f"Comentários salvos no banco: {count} registros")
+
+
+def load_tasks() -> list[dict]:
+    """Carrega todas as tasks salvas, com a lista de tags já decodificada."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM tasks ORDER BY project_group_name, title")
+    rows = cursor.fetchall()
+    conn.close()
+    result = []
+    for row in rows:
+        d = dict(row)
+        try:
+            d["tags"] = json.loads(d["tags_json"]) if d.get("tags_json") else []
+        except (TypeError, ValueError):
+            d["tags"] = []
+        result.append(d)
+    return result
+
+
+def load_comments_by_task() -> dict[int, list[dict]]:
+    """Carrega todos os comentários agrupados por task_id."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM comments ORDER BY created_at")
+    rows = cursor.fetchall()
+    conn.close()
+    by_task: dict[int, list[dict]] = {}
+    for row in rows:
+        by_task.setdefault(row["task_id"], []).append(dict(row))
+    return by_task
+
 
 def save_entregas(entregas_df: pd.DataFrame):
     """Salva as entregas no banco de dados."""

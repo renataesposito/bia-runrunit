@@ -328,7 +328,12 @@ def load_entregas(escopo: pd.DataFrame) -> pd.DataFrame:
                 anexos_unicos[did] = a
                     
     database.save_anexos(list(anexos_unicos.values()))
-    
+
+    # Persiste tasks (com tags) e comentários para diagnóstico no Debug
+    # (ex.: tasks com tag mas nenhum comentário registrando quantidade)
+    database.save_tasks(gestao_tasks)
+    database.save_comments(all_comments)
+
     for task in gestao_tasks:
         task_tags = task.get("task_tags") or []
         if isinstance(task_tags, str):
